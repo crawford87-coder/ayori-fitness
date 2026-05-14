@@ -120,6 +120,12 @@ function getSuggestion(remaining, mealLibrary) {
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
+async function invokeCoach(payload) {
+  const { data, error } = await supabase.functions.invoke("coach", { body: payload });
+  if (error) throw new Error(error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
 function buildSystemPrompt(state) {
   const { today, schedule, readiness, weekLog, mealLibrary, measurements, weekPlan } = state;
   const totals = sumLog(weekLog[today]||[]);
@@ -130,6 +136,10 @@ function buildSystemPrompt(state) {
     return `${d}(${WORKOUT_TYPES[schedule[d]]?.label}): ${tgt.total}cal / P${tgt.protein}g / C${tgt.carbs}g / F${tgt.fat}g`;
   }).join("\n");
   return `You are a nutrition coach agent embedded in a fitness tracking app. You write data directly into the app via JSON blocks. Never say you "can't save" or "can't log" — you are the agent that does it.
+
+TWO MODES — recognise which one the user is in:
+1. MEAL LOGGING: User says "I just had X", "I ate X", "just finished X" → estimate macros, break them down clearly in your message, then output LOG_JSON. The app will show a confirmation card before committing — tell the user to confirm.
+2. MEAL PLANNING: User wants to plan the week, brainstorm meals, prep for the week → collaborate first, then when ready output MEALS_JSON + GROCERY_JSON + WEEK_JSON together. The user confirms the full plan before it's saved.
 
 USER GOAL: Fat loss. Preserve muscle. Needs to HIT calorie and protein targets every day — undereating is as bad as overeating for this goal.
 
@@ -152,33 +162,22 @@ PLANNING RULES:
 
 ACTION BLOCKS — output whichever apply:
 
-Log meals the user tells you about:
+MEAL LOGGING — when user reports eating something, estimate macros in your message then output:
 <LOG_JSON>[{"day":"Mon","name":"","cal":0,"protein":0,"carbs":0,"fat":0}]</LOG_JSON>
+Use today (${today}) as the day unless the user specifies otherwise. The app shows a confirmation card before logging — tell the user to tap "Log It" to confirm.
 
-When building or modifying a meal plan, output ALL THREE:
+MEAL PLANNING — when building or modifying a meal plan, output ALL THREE:
 <MEALS_JSON>[{"name":"","cal":0,"protein":0,"carbs":0,"fat":0}]</MEALS_JSON>
 <GROCERY_JSON>{"Proteins":[],"Produce":[],"Pantry & Grains":[],"Fridge & Other":[]}</GROCERY_JSON>
 <WEEK_JSON>{"Mon":{"breakfast":null,"lunch":null,"dinner":null,"snack":null},"Tue":{"breakfast":null,"lunch":null,"dinner":null,"snack":null},"Wed":{"breakfast":null,"lunch":null,"dinner":null,"snack":null},"Thu":{"breakfast":null,"lunch":null,"dinner":null,"snack":null},"Fri":{"breakfast":null,"lunch":null,"dinner":null,"snack":null},"Sat":{"breakfast":null,"lunch":null,"dinner":null,"snack":null},"Sun":{"breakfast":null,"lunch":null,"dinner":null,"snack":null}}</WEEK_JSON>
 WEEK_JSON slot values must be meal name strings matching MEALS_JSON exactly, or null.`;
 }
-const ANTHROPIC_HEADERS = {
-  "Content-Type": "application/json",
-  "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
-  "anthropic-version": "2023-06-01",
-  "anthropic-dangerous-direct-browser-access": "true",
-};
 async function callClaude(messages, systemPrompt) {
-  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:ANTHROPIC_HEADERS,body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:systemPrompt,messages})});
-  const data = await res.json();
-  if(!res.ok) throw new Error(data.error?.message||`API error ${res.status}`);
+  const data = await invokeCoach({ type: "chat", messages, systemPrompt });
   return data.content?.find(b=>b.type==="text")?.text||"";
 }
 async function estimateMacros(desc, imgData, imgType) {
-  const content = imgData
-    ? [{type:"image",source:{type:"base64",media_type:imgType,data:imgData}},{type:"text",text:`Estimate macros. User: "${desc||"this"}". Restaurant portions. JSON only: {"name":"","cal":0,"protein":0,"carbs":0,"fat":0,"confidence":"high|medium|low","note":""}`}]
-    : `Estimate macros for: "${desc}". Restaurant portions. JSON only: {"name":"","cal":0,"protein":0,"carbs":0,"fat":0,"confidence":"high|medium|low","note":""}`;
-  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:ANTHROPIC_HEADERS,body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:400,messages:[{role:"user",content}]})});
-  const data = await res.json();
+  const data = await invokeCoach({ type: "estimate", description: desc, imageData: imgData, imageType: imgType });
   return JSON.parse((data.content?.find(b=>b.type==="text")?.text||"").replace(/```json|```/g,"").trim());
 }
 const parseMeals = t => { try{const m=t.match(/<MEALS_JSON>([\s\S]*?)<\/MEALS_JSON>/);return m?JSON.parse(m[1]):null;}catch{return null;} };
@@ -251,6 +250,17 @@ async function dbSaveMeasurements(userId,measurements) {
 }
 async function dbSaveReadiness(userId,score,date) {
   await supabase.from('oura_readiness').upsert({user_id:userId,date,score},{onConflict:'user_id,date'});
+}
+async function dbLoadMessages(userId,weekKey) {
+  try {
+    const {data}=await supabase.from('coach_sessions').select('messages').eq('user_id',userId).eq('week_key',weekKey).single();
+    return data?.messages||null;
+  } catch { return null; }
+}
+async function dbSaveMessages(userId,weekKey,messages) {
+  try {
+    await supabase.from('coach_sessions').upsert({user_id:userId,week_key:weekKey,messages,updated_at:new Date().toISOString()},{onConflict:'user_id,week_key'});
+  } catch { /* table may not exist yet */ }
 }
 
 // ── DESIGN PRIMITIVES ─────────────────────────────────────────────────────────
@@ -388,6 +398,7 @@ function CoachScreen({ t, appState, mealLibrary, setMealLibrary, setWeekPlan, se
   const [loading,setLoading]=useState(false);
   const [pendingMeals,setPendingMeals]=useState(null);
   const [pendingWeek,setPendingWeek]=useState(null);
+  const [pendingLog,setPendingLog]=useState(null);
   const bottomRef=useRef(), taRef=useRef();
 
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages,loading]);
@@ -404,26 +415,30 @@ function CoachScreen({ t, appState, mealLibrary, setMealLibrary, setWeekPlan, se
       if(meals?.length)setPendingMeals(meals);
       if(grocery&&Object.keys(grocery).length)setGroceryList(grocery);
       if(week)setPendingWeek(week);
-      if(log?.length){
-        log.forEach(entry=>{
-          const {day,...meal}=entry;
-          if(day&&DAYS.includes(day))setWeekLog(p=>({...p,[day]:[...(p[day]||[]),meal]}));
-        });
-      }
+      if(log?.length) setPendingLog(log);
     } catch(err){setMessages(p=>[...p,{role:"assistant",content:`Error: ${err.message}`}]);}
     setLoading(false);
   };
 
   const confirmPlan=()=>{
     if(!pendingMeals)return;
-    // Add new meals to library
     const ex=new Set(mealLibrary.map(m=>m.name.toLowerCase()));
     const newM=pendingMeals.filter(m=>!ex.has(m.name.toLowerCase()));
     setMealLibrary(p=>[...p,...newM]);
-    // Set week plan
     if(pendingWeek) setWeekPlan(pendingWeek);
     setMessages(p=>[...p,{role:"assistant",content:`Plan confirmed. ${newM.length} meals added to your library. Head to Week to see your schedule.`}]);
     setPendingMeals(null);setPendingWeek(null);
+  };
+
+  const confirmLog=()=>{
+    if(!pendingLog)return;
+    pendingLog.forEach(entry=>{
+      const {day,...meal}=entry;
+      if(day&&DAYS.includes(day)) setWeekLog(p=>({...p,[day]:[...(p[day]||[]),meal]}));
+    });
+    const names=pendingLog.map(e=>e.name).join(", ");
+    setMessages(p=>[...p,{role:"assistant",content:`Logged: ${names}`}]);
+    setPendingLog(null);
   };
 
   const hasGrocery=Object.keys(groceryList).length>0;
@@ -462,6 +477,26 @@ function CoachScreen({ t, appState, mealLibrary, setMealLibrary, setWeekPlan, se
               <div style={{ display:"flex", gap:6, padding:"12px 4px" }}>
                 {[0,1,2].map(i=><div key={i} style={{ width:4, height:4, borderRadius:"50%", background:t.textDim, animation:`pulse 1.2s ease ${i*0.2}s infinite` }}/>)}
               </div>
+            )}
+            {pendingLog&&(
+              <Surface t={t} style={{ padding:"16px 20px" }}>
+                <Over t={t} style={{ marginBottom:12, color:t.accent }}>Log {pendingLog.length} meal{pendingLog.length>1?"s":""}</Over>
+                <div style={{ display:"flex", flexDirection:"column", gap:0, marginBottom:16 }}>
+                  {pendingLog.map((e,i)=>(
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:"8px 0", borderBottom:`1px solid ${t.border}` }}>
+                      <div style={{ display:"flex", gap:8, alignItems:"baseline" }}>
+                        <Over t={t} color={t.textDim} style={{ width:28 }}>{e.day}</Over>
+                        <span style={{ fontSize:13, fontWeight:300, color:t.text }}>{e.name}</span>
+                      </div>
+                      <span style={{ fontSize:11, color:t.textMid, flexShrink:0 }}>{e.cal}cal · P{e.protein}g</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:"flex", gap:10 }}>
+                  <SolidBtn t={t} onClick={confirmLog} style={{ flex:2, textAlign:"center" }}>Log It</SolidBtn>
+                  <GhostBtn t={t} onClick={()=>setPendingLog(null)} style={{ flex:1, textAlign:"center" }}>Cancel</GhostBtn>
+                </div>
+              </Surface>
             )}
             {pendingMeals&&(
               <Surface t={t} style={{ padding:"16px 20px" }}>
@@ -1463,6 +1498,7 @@ export default function App() {
         if(data.readiness!==null) setReadiness(data.readiness);
       } catch(e){console.error('Load error:',e);}
       setLoaded(true);
+      dbLoadMessages(user.id,getWeekKey()).then(msgs=>{if(msgs?.length)setCoachMessages(msgs);});
     })();
   },[user]);
 
@@ -1472,6 +1508,7 @@ export default function App() {
   useEffect(()=>{ if(loaded&&user) dbSaveLibrary(user.id,mealLibrary); },[mealLibrary,loaded]);
   useEffect(()=>{ if(loaded&&user&&readiness!==null) dbSaveReadiness(user.id,readiness,weekDates[today]); },[readiness,loaded]);
   useEffect(()=>{ if(loaded&&user) dbSaveWeekPlan(user.id,weekPlan,weekKey); },[weekPlan,loaded]);
+  useEffect(()=>{ if(loaded&&user&&coachMessages.length>1) dbSaveMessages(user.id,weekKey,coachMessages); },[coachMessages,loaded]);
 
   const t=THEMES[theme];
   const todayLog=weekLog[today]||[];
@@ -1492,7 +1529,7 @@ export default function App() {
     {key:"progress", label:"Stats"},
   ];
 
-  if(authLoading||!loaded) return (
+  if(authLoading||(user&&!loaded)) return (
     <div style={{ background:THEMES[theme].bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center" }}>
       <Over t={THEMES[theme]}>Ayori</Over>
     </div>
