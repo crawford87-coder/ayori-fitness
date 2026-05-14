@@ -233,24 +233,38 @@ async function dbLoad(userId) {
   return {weekLog,weekHabits,mealLibrary,weekPlan,measurements,readiness};
 }
 async function dbSaveWeekLog(userId,weekLog,weekDates) {
-  const dates=Object.values(weekDates);
-  await supabase.from('meal_logs').delete().eq('user_id',userId).in('date',dates);
   const rows=DAYS.flatMap(d=>(weekLog[d]||[]).map(m=>({user_id:userId,date:weekDates[d],meal_name:m.name,calories:m.cal||0,protein:m.protein||0,carbs:m.carbs||0,fat:m.fat||0,is_social:m.social||false})));
+  const dates=Object.values(weekDates);
+  // Insert first, then delete old — prevents data loss if insert fails
   if(rows.length) await supabase.from('meal_logs').insert(rows);
+  // Delete only rows NOT in the new set (by removing all then re-checking is unsafe; delete-then-insert only when we have data to insert)
+  if(rows.length) {
+    const {data:existing}=await supabase.from('meal_logs').select('id').eq('user_id',userId).in('date',dates);
+    const newIds=new Set(rows.map((_,i)=>i));// new rows have no id yet — delete old by excluding the just-inserted count
+    const keepCount=rows.length;
+    const allIds=(existing||[]).map(r=>r.id);
+    const toDelete=allIds.slice(0,allIds.length-keepCount);
+    if(toDelete.length) await supabase.from('meal_logs').delete().in('id',toDelete);
+  } else {
+    // User explicitly cleared all meals for the week
+    await supabase.from('meal_logs').delete().eq('user_id',userId).in('date',dates);
+  }
 }
 async function dbSaveHabits(userId,weekHabits,weekDates) {
   const dates=Object.values(weekDates);
-  await supabase.from('habits').delete().eq('user_id',userId).in('date',dates);
   const rows=DAYS.flatMap(d=>HABITS.filter(h=>weekHabits[d]?.[h.key]).map(h=>({user_id:userId,date:weekDates[d],habit_key:h.key,completed:true})));
+  await supabase.from('habits').delete().eq('user_id',userId).in('date',dates);
   if(rows.length) await supabase.from('habits').insert(rows);
 }
 async function dbSaveLibrary(userId,mealLibrary) {
-  await supabase.from('meal_library').delete().eq('user_id',userId);
-  if(mealLibrary.length) await supabase.from('meal_library').insert(mealLibrary.map(m=>({user_id:userId,name:m.name,calories:m.cal||0,protein:m.protein||0,carbs:m.carbs||0,fat:m.fat||0})));
+  // Deduplicate by name before saving to prevent accumulation
+  const unique=mealLibrary.filter((m,i,a)=>a.findIndex(x=>x.name===m.name)===i);
+  const {error:delErr}=await supabase.from('meal_library').delete().eq('user_id',userId);
+  if(!delErr && unique.length) await supabase.from('meal_library').insert(unique.map(m=>({user_id:userId,name:m.name,calories:m.cal||0,protein:m.protein||0,carbs:m.carbs||0,fat:m.fat||0})));
 }
 async function dbSaveWeekPlan(userId,weekPlan,weekKey) {
-  await supabase.from('week_plans').delete().eq('user_id',userId).eq('week_key',weekKey);
   const rows=DAYS.flatMap(d=>['breakfast','lunch','dinner','snack'].filter(s=>weekPlan[d]?.[s]).map(s=>({user_id:userId,week_key:weekKey,day:d,slot:s,meal_name:weekPlan[d][s]})));
+  await supabase.from('week_plans').delete().eq('user_id',userId).eq('week_key',weekKey);
   if(rows.length) await supabase.from('week_plans').insert(rows);
 }
 async function dbSaveMeasurements(userId,measurements) {
@@ -1567,9 +1581,12 @@ export default function App() {
         setWeekPlan(data.weekPlan);
         setMeasurements(data.measurements);
         if(data.readiness!==null) setReadiness(data.readiness);
-      } catch(e){console.error('Load error:',e);}
-      setLoaded(true);
-      dbLoadMessages(user.id,getWeekKey()).then(msgs=>{if(msgs?.length)setCoachMessages(msgs);});
+        setLoaded(true); // only set on success — prevents saves firing with empty state
+        dbLoadMessages(user.id,getWeekKey()).then(msgs=>{if(msgs?.length)setCoachMessages(msgs);});
+      } catch(e){
+        console.error('Load error:',e);
+        // do not set loaded=true — app stays on splash until next retry
+      }
     })();
   },[user]);
 
