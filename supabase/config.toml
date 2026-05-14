@@ -1,0 +1,14 @@
+project_id = "zxypibpiddgtsifiycnj"
+
+[auth]
+site_url = "https://crawford87-coder.github.io/ayori-fitness/"
+additional_redirect_urls = ["https://crawford87-coder.github.io/ayori-fitness/**"]
+
+[auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true

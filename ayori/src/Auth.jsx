@@ -15,7 +15,7 @@ export default function Auth() {
     setMessage(null)
     const { error } = mode === 'signin'
       ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password })
+      : await supabase.auth.signUp({ email, password, options: { emailRedirectTo: 'https://crawford87-coder.github.io/ayori-fitness/' } })
     if (error) setError(error.message)
     else if (mode === 'signup') setMessage('Check your email to confirm your account.')
     setLoading(false)
