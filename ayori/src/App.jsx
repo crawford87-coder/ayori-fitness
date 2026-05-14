@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { motion, useScroll, useTransform } from "framer-motion";
 import { supabase } from './supabase'
 import Auth from './Auth'
 
@@ -6,17 +7,17 @@ import Auth from './Auth'
 const THEMES = {
   day: {
     name:"day", label:"Day",
-    bg:        "#f2f1f8",   // soft cool white with violet tint
-    surface:   "#eceaf5",   // slightly deeper for cards
-    elevated:  "#ffffff",   // pure white for raised elements
+    bg:        "#f2f1f8",
+    surface:   "#eceaf5",
+    elevated:  "#f8f7ff",
     border:    "rgba(100,80,180,0.10)",
     borderMid: "rgba(100,80,180,0.22)",
-    text:      "#1e1b3a",   // deep navy — high contrast
-    textMid:   "#6b6488",   // muted purple-gray
-    textDim:   "#a09ab8",   // labels/hints
-    accent:    "#8b6fd4",   // violet
-    accentB:   "#5b9bd4",   // blue
-    accentC:   "#c47eb8",   // rose-mauve
+    text:      "#1e1b3a",
+    textMid:   "#6b6488",
+    textDim:   "#a09ab8",
+    accent:    "#8b6fd4",
+    accentB:   "#5b9bd4",
+    accentC:   "#c47eb8",
     ring:      "#8b6fd4",
     protein:   "#8b6fd4",
     carbs:     "#5b9bd4",
@@ -24,20 +25,24 @@ const THEMES = {
     good:      "#5bb88a",
     warn:      "#c4944a",
     over:      "#c05868",
+    shadow:    "8px 8px 20px rgba(100,80,180,0.18), -8px -8px 20px rgba(255,255,255,0.95)",
+    shadowSm:  "4px 4px 12px rgba(100,80,180,0.14), -4px -4px 12px rgba(255,255,255,0.9)",
+    shadowInset:"inset 4px 4px 12px rgba(100,80,180,0.18), inset -4px -4px 12px rgba(255,255,255,0.85)",
+    bgGradient:"radial-gradient(ellipse at 30% 20%, #f8f7ff 0%, #f2f1f8 55%, #eae8f5 100%)",
   },
   night: {
     name:"night", label:"Night",
-    bg:        "#1a1730",   // deep purple-navy
+    bg:        "#1a1730",
     surface:   "#221f3a",
     elevated:  "#2a2648",
     border:    "rgba(180,160,255,0.10)",
     borderMid: "rgba(180,160,255,0.22)",
-    text:      "#f0eeff",   // primary
-    textMid:   "#9890c8",   // secondary
-    textDim:   "#605878",   // tertiary
-    accent:    "#a88ee8",   // violet — lighter for dark bg
-    accentB:   "#6ea8e8",   // blue
-    accentC:   "#d87eb8",   // rose
+    text:      "#f0eeff",
+    textMid:   "#9890c8",
+    textDim:   "#605878",
+    accent:    "#a88ee8",
+    accentB:   "#6ea8e8",
+    accentC:   "#d87eb8",
     ring:      "#a88ee8",
     protein:   "#a88ee8",
     carbs:     "#6ea8e8",
@@ -45,6 +50,10 @@ const THEMES = {
     good:      "#68c898",
     warn:      "#c8a060",
     over:      "#d06878",
+    shadow:    "8px 8px 20px rgba(0,0,0,0.45), -6px -6px 16px rgba(80,70,140,0.14)",
+    shadowSm:  "4px 4px 12px rgba(0,0,0,0.35), -3px -3px 10px rgba(80,70,140,0.12)",
+    shadowInset:"inset 4px 4px 12px rgba(0,0,0,0.45), inset -4px -4px 12px rgba(80,70,140,0.14)",
+    bgGradient:"radial-gradient(ellipse at 30% 20%, #2a2648 0%, #1a1730 55%, #100e24 100%)",
   }
 };
 
@@ -279,65 +288,117 @@ const BigNum = ({ t, value, color, size=52 }) => (
 );
 
 // Arc ring — Oura-style data ring
-function Arc({ value, max, size=100, sw=5, color, bg, label, sub }) {
+function Arc({ value, max, size=100, sw=5, color, bg, label, sub, t }) {
   const r=(size-sw)/2, circ=2*Math.PI*r, pct=Math.min(1,value/max), over=value>max;
-  const col = over?"#b05050":color;
+  const col = over?"#c05868":color;
+  const dimCol = t ? t.textDim : "rgba(150,140,180,0.5)";
   return (
-    <div style={{ position:"relative", width:size, height:size, flexShrink:0 }}>
+    <div style={{ position:"relative", width:size, height:size, flexShrink:0,
+      borderRadius:"50%", boxShadow: t ? t.shadow : undefined }}>
       <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={bg||"rgba(255,255,255,0.05)"} strokeWidth={sw}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={bg||"rgba(150,140,180,0.15)"} strokeWidth={sw}/>
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth={sw}
           strokeDasharray={circ} strokeDashoffset={circ*(1-pct)} strokeLinecap="round"
           style={{ transition:"stroke-dashoffset 1s cubic-bezier(.4,0,.2,1)" }}/>
       </svg>
       <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
         <div style={{ fontSize:size>90?22:14, fontWeight:200, color:col, letterSpacing:-1, fontFamily:"'Georgia','Times New Roman',serif", lineHeight:1 }}>{value}</div>
-        {sub&&<div style={{ fontSize:8, color:"rgba(255,255,255,0.2)", letterSpacing:1, marginTop:3 }}>/{sub}</div>}
-        {label&&<div style={{ fontSize:7, letterSpacing:2.5, textTransform:"uppercase", color:"rgba(255,255,255,0.2)", marginTop:4 }}>{label}</div>}
+        {sub&&<div style={{ fontSize:8, color:dimCol, letterSpacing:1, marginTop:3 }}>/{sub}</div>}
+        {label&&<div style={{ fontSize:7, letterSpacing:2.5, textTransform:"uppercase", color:dimCol, marginTop:4 }}>{label}</div>}
       </div>
     </div>
   );
 }
 
 // Thin progress bar
-function Bar({ value, target, color }) {
+function Bar({ value, target, color, t }) {
   const pct=Math.min(100,(value/target)*100), over=value>target;
+  const trackColor = t ? (t.name==="day" ? "rgba(100,80,180,0.10)" : "rgba(180,160,255,0.08)") : "rgba(150,140,180,0.15)";
   return (
-    <div style={{ height:4, borderRadius:99, background:"rgba(255,255,255,0.10)", overflow:"hidden" }}>
-      <div style={{ height:"100%", borderRadius:99, width:`${pct}%`, background:over?"#c05858":color, transition:"width 0.8s cubic-bezier(.4,0,.2,1)" }}/>
+    <div style={{ height:5, borderRadius:99, background:trackColor, overflow:"hidden",
+      boxShadow: t ? t.shadowInset : undefined }}>
+      <div style={{ height:"100%", borderRadius:99, width:`${pct}%`, background:over?"#c05868":color,
+        transition:"width 0.8s cubic-bezier(.4,0,.2,1)",
+        boxShadow:`0 0 8px ${over?"#c05868":color}80` }}/>
     </div>
   );
 }
 
+// Glossy sphere — used for toggle handles, status dots, primary accents
+const GlossySphere = ({ size=24, color, pulse=false }) => (
+  <motion.div
+    animate={pulse ? { boxShadow: [
+      `2px 3px 12px ${color}60, -1px -1px 4px rgba(255,255,255,0.7), inset 0 1px 3px rgba(255,255,255,0.6)`,
+      `2px 3px 20px ${color}90, -1px -1px 4px rgba(255,255,255,0.8), inset 0 1px 3px rgba(255,255,255,0.7)`,
+      `2px 3px 12px ${color}60, -1px -1px 4px rgba(255,255,255,0.7), inset 0 1px 3px rgba(255,255,255,0.6)`,
+    ]} : {}}
+    transition={pulse ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : {}}
+    whileHover={{ scale: 1.12, boxShadow: `2px 3px 22px ${color}95, -1px -1px 6px rgba(255,255,255,0.9)` }}
+    style={{
+      width:size, height:size, borderRadius:"50%", flexShrink:0,
+      background:`radial-gradient(circle at 35% 30%, rgba(255,255,255,0.95) 0%, ${color} 45%, ${color}cc 100%)`,
+      boxShadow:`2px 3px 12px ${color}60, -1px -1px 4px rgba(255,255,255,0.7), inset 0 1px 3px rgba(255,255,255,0.6)`,
+    }}
+  />
+);
+
+// Card — scroll-triggered entrance with neumorphic depth
+const cardVariants = {
+  hidden: { opacity:0, y:20 },
+  visible: { opacity:1, y:0, transition:{ duration:0.45, ease:[0.4,0,0.2,1] } }
+};
+const Card = ({ children, style={}, t }) => (
+  <motion.div
+    variants={cardVariants}
+    initial="hidden"
+    whileInView="visible"
+    viewport={{ once:true, margin:"-30px" }}
+    style={{ background:t.elevated, borderRadius:20, boxShadow:t.shadow, ...style }}
+  >
+    {children}
+  </motion.div>
+);
+
 // Surface — slightly elevated panel
 const Surface = ({ t, children, style={} }) => (
-  <div style={{ background:t.elevated, borderRadius:16, padding:"20px", ...style }}>{children}</div>
+  <div style={{ background:t.elevated, borderRadius:20, padding:"20px",
+    boxShadow:t.shadow, ...style }}>{children}</div>
 );
 
-// Ghost button — Submersive style: just border, no fill
+// Ghost button
 const GhostBtn = ({ t, children, onClick, accent, style={} }) => (
-  <button onClick={onClick} style={{
-    padding:"11px 20px", borderRadius:40,
-    border:`1px solid ${accent||t.borderMid}`,
-    background:"transparent", color:accent||t.textMid,
-    fontSize:11, letterSpacing:2, textTransform:"uppercase",
-    cursor:"pointer", fontFamily:"inherit", fontWeight:500,
-    transition:"border-color 0.2s, color 0.2s",
-    ...style
-  }}>{children}</button>
+  <motion.button onClick={onClick} whileTap={{ scale:0.97 }}
+    style={{
+      padding:"11px 20px", borderRadius:40,
+      border:`1px solid ${accent||t.borderMid}`,
+      background:t.elevated, color:accent||t.textMid,
+      fontSize:11, letterSpacing:2, textTransform:"uppercase",
+      cursor:"pointer", fontFamily:"inherit", fontWeight:500,
+      boxShadow:t.shadowSm,
+      transition:"box-shadow 0.18s",
+      ...style
+    }}>{children}</motion.button>
 );
 
-// Solid btn
-const SolidBtn = ({ t, children, onClick, disabled, color, style={} }) => (
-  <button onClick={onClick} disabled={disabled} style={{
-    padding:"13px 24px", borderRadius:40,
-    border:"none", background:color||t.accent,
-    color:t.bg, fontSize:11, letterSpacing:2, textTransform:"uppercase",
-    cursor:disabled?"not-allowed":"pointer", fontFamily:"inherit", fontWeight:600,
-    opacity:disabled?0.35:1, transition:"opacity 0.15s",
-    ...style
-  }}>{children}</button>
-);
+// Solid btn — glossy sphere style
+const SolidBtn = ({ t, children, onClick, disabled, color, style={} }) => {
+  const c = color||t.accent;
+  return (
+    <motion.button onClick={onClick} disabled={disabled}
+      whileTap={disabled ? {} : { scale:0.97, boxShadow:t.shadowInset }}
+      whileHover={disabled ? {} : { scale:1.02 }}
+      style={{
+        padding:"13px 24px", borderRadius:40, border:"none",
+        background:`radial-gradient(circle at 40% 35%, ${c}dd 0%, ${c} 60%, ${c}bb 100%)`,
+        color:"#fff", fontSize:11, letterSpacing:2, textTransform:"uppercase",
+        cursor:disabled?"not-allowed":"pointer", fontFamily:"inherit", fontWeight:600,
+        opacity:disabled?0.35:1,
+        boxShadow:disabled?"none":`4px 6px 16px ${c}55, -2px -2px 8px rgba(255,255,255,0.7), inset 0 1px 2px rgba(255,255,255,0.4)`,
+        transition:"opacity 0.15s",
+        ...style
+      }}>{children}</motion.button>
+  );
+};
 
 // Text input
 const TxtInput = ({ t, style={}, ...props }) => (
@@ -616,7 +677,7 @@ function Dashboard({ t, today, dayIdx, todayLog, setTodayLog, targets, readiness
 
       {/* Calorie — centrepiece */}
       <div style={{ padding:"32px 0 28px", borderBottom:`1px solid ${t.border}`, display:"flex", alignItems:"center", gap:28 }}>
-        <Arc value={totals.cal} max={targets.total} size={112} sw={5} color={t.ring} label="kcal" sub={targets.total}/>
+        <Arc value={totals.cal} max={targets.total} size={112} sw={5} color={t.ring} label="kcal" sub={targets.total} t={t}/>
         <div style={{ flex:1 }}>
           {[
             {label:"Protein", val:totals.protein, target:targets.protein, color:t.protein},
@@ -631,7 +692,7 @@ function Dashboard({ t, today, dayIdx, todayLog, setTodayLog, targets, readiness
                   <span style={{ opacity:0.4 }}>/{m.target}g</span>
                 </span>
               </div>
-              <Bar value={m.val} target={m.target} color={m.color}/>
+              <Bar value={m.val} target={m.target} color={m.color} t={t}/>
             </div>
           ))}
           <div style={{ fontSize:10, color:remaining.cal<0?t.over:t.textDim, textAlign:"right", letterSpacing:1, marginTop:4 }}>
@@ -658,14 +719,15 @@ function Dashboard({ t, today, dayIdx, todayLog, setTodayLog, targets, readiness
             const active=readiness===v;
             const col=v>=75?t.good:v>=60?t.warn:t.over;
             return (
-              <button key={v} onClick={()=>setReadiness(v)} style={{
-                padding:"5px 9px", borderRadius:4,
-                border:`1px solid ${active?col:t.border}`,
-                background:active?`${col}15`:"transparent",
+              <motion.button key={v} onClick={()=>setReadiness(v)} whileTap={{ scale:0.93 }} style={{
+                padding:"5px 9px", borderRadius:8,
+                border:`1px solid ${active?col+"60":t.border}`,
+                background:active?`${col}18`:t.elevated,
                 color:active?col:t.textDim,
                 fontSize:10, cursor:"pointer", fontFamily:"inherit",
+                boxShadow:active?`inset 2px 2px 6px ${col}30, inset -2px -2px 6px rgba(255,255,255,0.5)`:t.shadowSm,
                 transition:"all 0.15s",
-              }}>{v}</button>
+              }}>{v}</motion.button>
             );
           })}
         </div>
@@ -696,17 +758,22 @@ function Dashboard({ t, today, dayIdx, todayLog, setTodayLog, targets, readiness
             const done=todayHabits[h.key];
             const col=t.name==="day"?h.dayCol:h.nightCol;
             return (
-              <button key={h.key} onClick={()=>setActiveTab("habits")} style={{
-                background:done?`${col}12`:t.elevated,
-                border:`1px solid ${done?col+"40":t.border}`,
-                borderRadius:12, padding:"16px 12px",
-                cursor:"pointer", fontFamily:"inherit",
-                display:"flex", flexDirection:"column", alignItems:"center", gap:10,
-                transition:"all 0.2s",
-              }}>
-                <div style={{ width:8, height:8, borderRadius:"50%", background:done?col:t.textDim, transition:"background 0.2s" }}/>
+              <motion.button key={h.key} onClick={()=>setActiveTab("habits")}
+                whileTap={{ scale:0.95 }}
+                style={{
+                  background:done?`${col}10`:t.elevated,
+                  border:`1px solid ${done?col+"50":t.border}`,
+                  borderRadius:16, padding:"16px 12px",
+                  cursor:"pointer", fontFamily:"inherit",
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:10,
+                  boxShadow:done?`4px 4px 12px ${col}30, -4px -4px 12px rgba(255,255,255,0.8)`:t.shadowSm,
+                  transition:"box-shadow 0.2s, background 0.2s",
+                }}>
+                {done
+                  ? <GlossySphere size={10} color={col} pulse />
+                  : <div style={{ width:10, height:10, borderRadius:"50%", background:t.textDim, boxShadow:t.shadowInset }}/>}
                 <Over t={t} color={done?col:t.textDim} style={{ textAlign:"center", lineHeight:1.4 }}>{h.label}</Over>
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -993,18 +1060,20 @@ function Habits({ t, weekHabits, setWeekHabits, today }) {
           const done=todayHabits[h.key],streak=getStreak(h.key);
           const col=t.name==="day"?h.dayCol:h.nightCol;
           return (
-            <button key={h.key} onClick={()=>toggle(today,h.key)} style={{
+            <motion.button key={h.key} onClick={()=>toggle(today,h.key)} whileTap={{ scale:0.97 }} style={{
               display:"flex", alignItems:"center", gap:16, background:"transparent",
               border:"none", borderBottom:`1px solid ${t.border}`,
               padding:"18px 0", cursor:"pointer", fontFamily:"inherit", textAlign:"left",
             }}>
-              <div style={{ width:10, height:10, borderRadius:"50%", flexShrink:0, background:done?col:t.textDim, border:`1px solid ${done?col:t.textDim}`, transition:"all 0.2s" }}/>
+              {done
+                ? <GlossySphere size={12} color={col} pulse />
+                : <div style={{ width:12, height:12, borderRadius:"50%", flexShrink:0, background:t.surface, boxShadow:t.shadowInset }}/>}
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:14, fontWeight:300, color:done?t.text:t.textMid }}>{h.label}</div>
                 {streak>0&&<div style={{ fontSize:9, color:col, marginTop:4, letterSpacing:2, textTransform:"uppercase" }}>{streak} day streak</div>}
               </div>
               {done&&<div style={{ fontSize:9, color:col, letterSpacing:2, textTransform:"uppercase" }}>Done</div>}
-            </button>
+            </motion.button>
           );
         })}
       </div>
@@ -1473,6 +1542,8 @@ export default function App() {
   const [weekKey]=useState(getWeekKey);
   const [user,setUser]=useState(null);
   const [authLoading,setAuthLoading]=useState(true);
+  const { scrollY } = useScroll();
+  const bgY = useTransform(scrollY, [0, 800], [0, -120]);
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{
@@ -1538,28 +1609,35 @@ export default function App() {
   if(!user) return <Auth />;
 
   return (
-    <div style={{ fontFamily:"-apple-system,'SF Pro Text','Helvetica Neue',sans-serif", background:t.bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", paddingBottom:60, color:t.text }}>
+    <div style={{ fontFamily:"-apple-system,'SF Pro Text','Helvetica Neue',sans-serif", minHeight:"100vh", maxWidth:480, margin:"0 auto", paddingBottom:60, color:t.text, position:"relative", overflow:"hidden" }}>
       <style>{`
         @keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}
         *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
         input::placeholder,textarea::placeholder{color:${t.textDim};}
-        input[type=date]{color-scheme:dark;}
+        input[type=date]{color-scheme:${t.name==="day"?"light":"dark"};}
         ::-webkit-scrollbar{display:none;}
       `}</style>
 
-      {/* Top bar — wordmark + theme toggle */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px 0", borderBottom:`1px solid ${t.border}`, paddingBottom:16 }}>
-        <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:t.textMid, fontWeight:500 }}>Ayori</div>
+      {/* Parallax background gradient */}
+      <motion.div style={{ y:bgY, position:"fixed", inset:"-30% 0 0 0", background:t.bgGradient, zIndex:0, pointerEvents:"none" }}/>
+
+      {/* Content layer */}
+      <div style={{ position:"relative", zIndex:1 }}>
+
+      {/* Top bar */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px 16px", borderBottom:`1px solid ${t.border}`, backdropFilter:"blur(12px)", background:`${t.bg}cc` }}>
+        <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:t.accent, fontWeight:600 }}>Ayori</div>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          <button onClick={()=>setTheme(theme==="day"?"night":"day")} style={{
-            background:"transparent", border:`1px solid ${t.border}`, borderRadius:20,
+          <motion.button whileTap={{ scale:0.95 }} onClick={()=>setTheme(theme==="day"?"night":"day")} style={{
+            background:t.elevated, border:`1px solid ${t.border}`, borderRadius:20,
             padding:"5px 12px", cursor:"pointer", fontFamily:"inherit",
             color:t.textDim, fontSize:8, letterSpacing:3, textTransform:"uppercase",
-          }}>{t.label}</button>
-          <button onClick={()=>supabase.auth.signOut()} style={{
+            boxShadow:t.shadowSm,
+          }}>{t.label}</motion.button>
+          <motion.button whileTap={{ scale:0.95 }} onClick={()=>supabase.auth.signOut()} style={{
             background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit",
             color:t.textDim, fontSize:8, letterSpacing:3, textTransform:"uppercase", padding:"5px 4px",
-          }}>Out</button>
+          }}>Out</motion.button>
         </div>
       </div>
 
@@ -1587,6 +1665,7 @@ export default function App() {
           );
         })}
       </div>
+      </div>{/* end content layer */}
     </div>
   );
 }
