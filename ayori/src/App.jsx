@@ -222,7 +222,8 @@ async function dbLoad(userId) {
     supabase.from('oura_readiness').select('*').eq('user_id',userId).eq('date',todayStr),
   ]);
   const weekLog=Object.fromEntries(DAYS.map(d=>[d,[]]));
-  (logs.data||[]).forEach(r=>{const d=dateToDay[r.date];if(d)weekLog[d].push({name:r.meal_name,cal:r.calories,protein:r.protein,carbs:r.carbs,fat:r.fat,social:r.is_social});});
+  // Preserve DB id on every meal so upsert can track individual rows
+  (logs.data||[]).forEach(r=>{const d=dateToDay[r.date];if(d)weekLog[d].push({id:r.id,name:r.meal_name,cal:r.calories,protein:r.protein,carbs:r.carbs,fat:r.fat,social:r.is_social});});
   const weekHabits=Object.fromEntries(DAYS.map(d=>[d,{}]));
   (habR.data||[]).forEach(r=>{const d=dateToDay[r.date];if(d&&r.completed)weekHabits[d][r.habit_key]=true;});
   const mealLibrary=(libR.data||[]).map(r=>({name:r.name,cal:r.calories,protein:r.protein,carbs:r.carbs,fat:r.fat}));
@@ -233,43 +234,49 @@ async function dbLoad(userId) {
   return {weekLog,weekHabits,mealLibrary,weekPlan,measurements,readiness};
 }
 async function dbSaveWeekLog(userId,weekLog,weekDates) {
-  const rows=DAYS.flatMap(d=>(weekLog[d]||[]).map(m=>({user_id:userId,date:weekDates[d],meal_name:m.name,calories:m.cal||0,protein:m.protein||0,carbs:m.carbs||0,fat:m.fat||0,is_social:m.social||false})));
   const dates=Object.values(weekDates);
-  // Insert first, then delete old — prevents data loss if insert fails
-  if(rows.length) await supabase.from('meal_logs').insert(rows);
-  // Delete only rows NOT in the new set (by removing all then re-checking is unsafe; delete-then-insert only when we have data to insert)
-  if(rows.length) {
-    const {data:existing}=await supabase.from('meal_logs').select('id').eq('user_id',userId).in('date',dates);
-    const newIds=new Set(rows.map((_,i)=>i));// new rows have no id yet — delete old by excluding the just-inserted count
-    const keepCount=rows.length;
-    const allIds=(existing||[]).map(r=>r.id);
-    const toDelete=allIds.slice(0,allIds.length-keepCount);
-    if(toDelete.length) await supabase.from('meal_logs').delete().in('id',toDelete);
-  } else {
-    // User explicitly cleared all meals for the week
-    await supabase.from('meal_logs').delete().eq('user_id',userId).in('date',dates);
-  }
+  const rows=DAYS.flatMap(d=>(weekLog[d]||[]).map(m=>({
+    id: m.id,  // client-generated UUID preserved from load or creation
+    user_id:userId, date:weekDates[d], meal_name:m.name,
+    calories:m.cal||0, protein:m.protein||0, carbs:m.carbs||0, fat:m.fat||0, is_social:m.social||false,
+  })));
+  // 1. Upsert all current meals — never deletes, only adds/updates
+  if(rows.length) await supabase.from('meal_logs').upsert(rows,{onConflict:'id'});
+  // 2. Delete only rows the user explicitly removed (in DB but not in state)
+  const currentIds=new Set(rows.map(r=>r.id).filter(Boolean));
+  const {data:dbRows}=await supabase.from('meal_logs').select('id').eq('user_id',userId).in('date',dates);
+  const toDelete=(dbRows||[]).map(r=>r.id).filter(id=>!currentIds.has(id));
+  if(toDelete.length) await supabase.from('meal_logs').delete().in('id',toDelete);
 }
 async function dbSaveHabits(userId,weekHabits,weekDates) {
   const dates=Object.values(weekDates);
   const rows=DAYS.flatMap(d=>HABITS.filter(h=>weekHabits[d]?.[h.key]).map(h=>({user_id:userId,date:weekDates[d],habit_key:h.key,completed:true})));
-  await supabase.from('habits').delete().eq('user_id',userId).in('date',dates);
-  if(rows.length) await supabase.from('habits').insert(rows);
+  // Upsert checked habits, then delete unchecked ones
+  if(rows.length) await supabase.from('habits').upsert(rows,{onConflict:'user_id,date,habit_key'});
+  const {data:dbRows}=await supabase.from('habits').select('id,date,habit_key').eq('user_id',userId).in('date',dates);
+  const toDelete=(dbRows||[]).filter(r=>{const day=Object.entries(weekDates).find(([,dt])=>dt===r.date)?.[0];return !day||!weekHabits[day]?.[r.habit_key];}).map(r=>r.id);
+  if(toDelete.length) await supabase.from('habits').delete().in('id',toDelete);
 }
 async function dbSaveLibrary(userId,mealLibrary) {
-  // Deduplicate by name before saving to prevent accumulation
   const unique=mealLibrary.filter((m,i,a)=>a.findIndex(x=>x.name===m.name)===i);
-  const {error:delErr}=await supabase.from('meal_library').delete().eq('user_id',userId);
-  if(!delErr && unique.length) await supabase.from('meal_library').insert(unique.map(m=>({user_id:userId,name:m.name,calories:m.cal||0,protein:m.protein||0,carbs:m.carbs||0,fat:m.fat||0})));
+  if(!unique.length) return;
+  // Upsert on (user_id, name) — never accumulates, never wipes
+  await supabase.from('meal_library').upsert(unique.map(m=>({user_id:userId,name:m.name,calories:m.cal||0,protein:m.protein||0,carbs:m.carbs||0,fat:m.fat||0})),{onConflict:'user_id,name'});
 }
 async function dbSaveWeekPlan(userId,weekPlan,weekKey) {
   const rows=DAYS.flatMap(d=>['breakfast','lunch','dinner','snack'].filter(s=>weekPlan[d]?.[s]).map(s=>({user_id:userId,week_key:weekKey,day:d,slot:s,meal_name:weekPlan[d][s]})));
-  await supabase.from('week_plans').delete().eq('user_id',userId).eq('week_key',weekKey);
-  if(rows.length) await supabase.from('week_plans').insert(rows);
+  // week_plans already has unique constraint on (user_id,week_key,day,slot)
+  if(rows.length) await supabase.from('week_plans').upsert(rows,{onConflict:'user_id,week_key,day,slot'});
+  // Remove cleared slots
+  const filledSlots=new Set(rows.map(r=>`${r.day}:${r.slot}`));
+  const {data:dbRows}=await supabase.from('week_plans').select('id,day,slot').eq('user_id',userId).eq('week_key',weekKey);
+  const toDelete=(dbRows||[]).filter(r=>!filledSlots.has(`${r.day}:${r.slot}`)).map(r=>r.id);
+  if(toDelete.length) await supabase.from('week_plans').delete().in('id',toDelete);
 }
 async function dbSaveMeasurements(userId,measurements) {
-  await supabase.from('body_measurements').delete().eq('user_id',userId);
-  if(measurements.length) await supabase.from('body_measurements').insert(measurements.map(m=>({user_id:userId,...m})));
+  if(!measurements.length) return;
+  // Upsert on (user_id, date) — safely overwrites same-day entry, never wipes history
+  await supabase.from('body_measurements').upsert(measurements.map(m=>({user_id:userId,...m})),{onConflict:'user_id,date'});
 }
 async function dbSaveReadiness(userId,score,date) {
   await supabase.from('oura_readiness').upsert({user_id:userId,date,score},{onConflict:'user_id,date'});
@@ -509,7 +516,7 @@ function CoachScreen({ t, appState, mealLibrary, setMealLibrary, setWeekPlan, se
     if(!pendingLog)return;
     pendingLog.forEach(entry=>{
       const {day,...meal}=entry;
-      if(day&&DAYS.includes(day)) setWeekLog(p=>({...p,[day]:[...(p[day]||[]),meal]}));
+      if(day&&DAYS.includes(day)) setWeekLog(p=>({...p,[day]:[...(p[day]||[]),{...meal,id:meal.id||crypto.randomUUID()}]}));
     });
     const names=pendingLog.map(e=>e.name).join(", ");
     setMessages(p=>[...p,{role:"assistant",content:`Logged: ${names}`}]);
@@ -825,7 +832,7 @@ function Dashboard({ t, today, dayIdx, todayLog, setTodayLog, targets, readiness
                   </div>
                   <div style={{ display:"flex", gap:8 }}>
                     <SolidBtn t={t} onClick={()=>{
-                      setTodayLog(p=>p.map((x,idx)=>idx===i?{...editForm,cal:+editForm.cal,protein:+editForm.protein,carbs:+editForm.carbs,fat:+editForm.fat}:x));
+                      setTodayLog(p=>p.map((x,idx)=>idx===i?{...editForm,id:x.id,cal:+editForm.cal,protein:+editForm.protein,carbs:+editForm.carbs,fat:+editForm.fat}:x));
                       setEditingIdx(null);
                     }} style={{ flex:2, textAlign:"center", padding:"9px 16px" }}>Save</SolidBtn>
                     <GhostBtn t={t} onClick={()=>{setTodayLog(p=>p.filter((_,idx)=>idx!==i));setEditingIdx(null);}} style={{ flex:1, textAlign:"center", padding:"9px 16px", color:t.over, borderColor:t.over }}>Delete</GhostBtn>
@@ -952,7 +959,7 @@ function MealLog({ t, weekLog, setWeekLog, today, schedule, readiness, mealLibra
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:16 }}>
                         <div style={{ fontSize:13, fontWeight:200, color:t.textMid }}>{meal.cal}</div>
-                        <button onClick={()=>setDayLog(p=>[...p,meal])} style={{ width:26, height:26, borderRadius:"50%", background:"transparent", border:`1px solid ${t.accent}`, color:t.accent, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
+                        <button onClick={()=>setDayLog(p=>[...p,{...meal,id:crypto.randomUUID()}])} style={{ width:26, height:26, borderRadius:"50%", background:"transparent", border:`1px solid ${t.accent}`, color:t.accent, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
                       </div>
                     </div>
                   ))}
@@ -970,7 +977,7 @@ function MealLog({ t, weekLog, setWeekLog, today, schedule, readiness, mealLibra
                 </div>
                 <SolidBtn t={t} onClick={()=>{
                   if(!custom.name||!custom.cal)return;
-                  setDayLog(p=>[...p,{name:custom.name,cal:+custom.cal,protein:+(custom.protein||0),carbs:+(custom.carbs||0),fat:+(custom.fat||0)}]);
+                  setDayLog(p=>[...p,{id:crypto.randomUUID(),name:custom.name,cal:+custom.cal,protein:+(custom.protein||0),carbs:+(custom.carbs||0),fat:+(custom.fat||0)}]);
                   setCustom({name:"",cal:"",protein:"",carbs:"",fat:""});
                   setAddOpen(false);
                 }} style={{ marginTop:20, width:"100%", textAlign:"center" }}>Add to {selectedDay}</SolidBtn>
@@ -1038,7 +1045,7 @@ function SocialMeal({ t, todayLog, setTodayLog, targets }) {
           {(()=>{const after=totals.cal+result.cal,rem=targets.total-after,over=rem<0;return(
             <div style={{ fontSize:12, color:over?t.over:t.good, letterSpacing:0.5, marginBottom:20 }}>{over?`${Math.abs(rem)} over target`:`${rem} kcal remaining`}</div>
           );})()} 
-          <SolidBtn t={t} onClick={()=>{setTodayLog(p=>[...p,{...result,social:true}]);setResult(null);setDesc("");setImgPreview(null);setImgData(null);}}>
+          <SolidBtn t={t} onClick={()=>{setTodayLog(p=>[...p,{...result,id:crypto.randomUUID(),social:true}]);setResult(null);setDesc("");setImgPreview(null);setImgData(null);}}>
             Log This Meal
           </SolidBtn>
         </div>
@@ -1241,7 +1248,7 @@ function WeekScreen({ t, weekPlan, setWeekPlan, mealLibrary, todayLog, setTodayL
   const logMeal = (mealName) => {
     const meal = getMeal(mealName);
     if(!meal||meal.cal==="?") return;
-    setTodayLog(p=>[...p,{...meal}]);
+    setTodayLog(p=>[...p,{...meal,id:crypto.randomUUID()}]);
   };
 
   const swapMeal = (day, slot, newMealName) => {
