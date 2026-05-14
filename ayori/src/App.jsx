@@ -6,45 +6,45 @@ import Auth from './Auth'
 const THEMES = {
   day: {
     name:"day", label:"Day",
-    bg:        "#111008",   // warm near-black
-    surface:   "#1c1a10",   // card bg
-    elevated:  "#242218",   // raised element
-    border:    "rgba(255,245,220,0.10)",
-    borderMid: "rgba(255,245,220,0.20)",
-    text:      "#f5f0e8",   // primary — near white warm
-    textMid:   "#b0a890",   // secondary — clearly readable
-    textDim:   "#706858",   // tertiary — labels, dimmed — still legible
-    accent:    "#d4906a",   // terracotta — brightened
-    accentB:   "#b88848",   // amber
-    accentC:   "#9888a0",   // dusty mauve
-    ring:      "#d4906a",
-    protein:   "#d4906a",
-    carbs:     "#b88848",
-    fat:       "#9888a0",
-    good:      "#80b888",
-    warn:      "#d4906a",
-    over:      "#c05858",
+    bg:        "#f2f1f8",   // soft cool white with violet tint
+    surface:   "#eceaf5",   // slightly deeper for cards
+    elevated:  "#ffffff",   // pure white for raised elements
+    border:    "rgba(100,80,180,0.10)",
+    borderMid: "rgba(100,80,180,0.22)",
+    text:      "#1e1b3a",   // deep navy — high contrast
+    textMid:   "#6b6488",   // muted purple-gray
+    textDim:   "#a09ab8",   // labels/hints
+    accent:    "#8b6fd4",   // violet
+    accentB:   "#5b9bd4",   // blue
+    accentC:   "#c47eb8",   // rose-mauve
+    ring:      "#8b6fd4",
+    protein:   "#8b6fd4",
+    carbs:     "#5b9bd4",
+    fat:       "#c47eb8",
+    good:      "#5bb88a",
+    warn:      "#c4944a",
+    over:      "#c05868",
   },
   night: {
     name:"night", label:"Night",
-    bg:        "#0a0814",
-    surface:   "#131020",
-    elevated:  "#1c1830",
-    border:    "rgba(200,180,255,0.10)",
-    borderMid: "rgba(200,180,255,0.20)",
-    text:      "#ede8f8",   // primary
-    textMid:   "#9890b8",   // secondary — readable
-    textDim:   "#605878",   // tertiary — still legible
-    accent:    "#9880e0",   // violet — brightened
-    accentB:   "#6888d8",   // blue
-    accentC:   "#d07898",   // rose
-    ring:      "#9880e0",
-    protein:   "#9880e0",
-    carbs:     "#6888d8",
-    fat:       "#d07898",
-    good:      "#68b888",
+    bg:        "#1a1730",   // deep purple-navy
+    surface:   "#221f3a",
+    elevated:  "#2a2648",
+    border:    "rgba(180,160,255,0.10)",
+    borderMid: "rgba(180,160,255,0.22)",
+    text:      "#f0eeff",   // primary
+    textMid:   "#9890c8",   // secondary
+    textDim:   "#605878",   // tertiary
+    accent:    "#a88ee8",   // violet — lighter for dark bg
+    accentB:   "#6ea8e8",   // blue
+    accentC:   "#d87eb8",   // rose
+    ring:      "#a88ee8",
+    protein:   "#a88ee8",
+    carbs:     "#6ea8e8",
+    fat:       "#d87eb8",
+    good:      "#68c898",
     warn:      "#c8a060",
-    over:      "#c05868",
+    over:      "#d06878",
   }
 };
 
