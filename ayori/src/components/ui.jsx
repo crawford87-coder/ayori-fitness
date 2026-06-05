@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 export const Rule = ({ t }) => <div style={{ height:1, background:t.border, margin:"0" }}/>;
 
 export const Over = ({ t, children, color, style={} }) => (
-  <div style={{ fontSize:11, letterSpacing:2.5, textTransform:"uppercase", color:color||t.textDim, fontWeight:500, ...style }}>{children}</div>
+  <div style={{ fontSize:13, letterSpacing:2.5, textTransform:"uppercase", color:color||t.textDim, fontWeight:500, ...style }}>{children}</div>
 );
 
 export const BigNum = ({ t, value, color, size=52 }) => (
@@ -24,9 +24,9 @@ export function Arc({ value, max, size=100, sw=5, color, bg, label, sub, t }) {
           style={{ transition:"stroke-dashoffset 1s cubic-bezier(.4,0,.2,1)" }}/>
       </svg>
       <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
-        <div style={{ fontSize:size>90?22:14, fontWeight:200, color:col, letterSpacing:-1, fontFamily:"'Georgia','Times New Roman',serif", lineHeight:1 }}>{value}</div>
-        {sub&&<div style={{ fontSize:8, color:dimCol, letterSpacing:1, marginTop:3 }}>/{sub}</div>}
-        {label&&<div style={{ fontSize:7, letterSpacing:2.5, textTransform:"uppercase", color:dimCol, marginTop:4 }}>{label}</div>}
+        <div style={{ fontSize:size>90?22:15, fontWeight:200, color:col, letterSpacing:-1, fontFamily:"'Georgia','Times New Roman',serif", lineHeight:1 }}>{value}</div>
+        {sub&&<div style={{ fontSize:10, color:dimCol, letterSpacing:1, marginTop:3 }}>/{sub}</div>}
+        {label&&<div style={{ fontSize:9, letterSpacing:2.5, textTransform:"uppercase", color:dimCol, marginTop:4 }}>{label}</div>}
       </div>
     </div>
   );
@@ -90,7 +90,7 @@ export const GhostBtn = ({ t, children, onClick, accent, style={} }) => (
       padding:"11px 20px", borderRadius:40,
       border:`1px solid ${accent||t.borderMid}`,
       background:t.elevated, color:accent||t.textMid,
-      fontSize:11, letterSpacing:2, textTransform:"uppercase",
+      fontSize:13, letterSpacing:2, textTransform:"uppercase",
       cursor:"pointer", fontFamily:"inherit", fontWeight:500,
       boxShadow:t.shadowSm,
       transition:"box-shadow 0.18s",
@@ -107,7 +107,7 @@ export const SolidBtn = ({ t, children, onClick, disabled, color, style={} }) =>
       style={{
         padding:"13px 24px", borderRadius:40, border:"none",
         background:`radial-gradient(circle at 40% 35%, ${c}dd 0%, ${c} 60%, ${c}bb 100%)`,
-        color:"#fff", fontSize:11, letterSpacing:2, textTransform:"uppercase",
+        color:"#fff", fontSize:13, letterSpacing:2, textTransform:"uppercase",
         cursor:disabled?"not-allowed":"pointer", fontFamily:"inherit", fontWeight:600,
         opacity:disabled?0.35:1,
         boxShadow:disabled?"none":`4px 6px 16px ${c}55, -2px -2px 8px rgba(255,255,255,0.7), inset 0 1px 2px rgba(255,255,255,0.4)`,

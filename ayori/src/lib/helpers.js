@@ -1,17 +1,16 @@
 import { supabase } from './supabase';
 import { DAYS, WORKOUT_TYPES, BASE, DAMAGE_CONTROL } from './constants';
 
-export function getTargets(workoutKey, readiness, isSocialNight, base = BASE) {
+export function getTargets(workoutKey, readiness, base = BASE) {
   const w = WORKOUT_TYPES[workoutKey] || WORKOUT_TYPES.REST;
   let calBonus = w.calBonus, carbBonus = w.carbBonus;
   if (readiness !== null && readiness < 60)      { calBonus = 0; carbBonus = 0; }
   else if (readiness !== null && readiness < 75) { calBonus = Math.round(calBonus*0.5); carbBonus = Math.round(carbBonus*0.5); }
-  const socialReserve = isSocialNight ? 700 : 0;
   return {
-    cal: base.cal + calBonus - socialReserve,
+    cal: base.cal + calBonus,
     protein: base.protein + (w.intensity==="high"?15:w.intensity==="moderate"?8:0),
     carbs: base.carbs + carbBonus, fat: base.fat,
-    total: base.cal + calBonus, socialReserve,
+    total: base.cal + calBonus,
   };
 }
 
@@ -22,7 +21,11 @@ export function sumLog(log) {
 export function getSuggestion(remaining, mealLibrary) {
   if (remaining.cal < 0) return { type:"over", meal:DAMAGE_CONTROL[1] };
   if (remaining.cal < 200) return { type:"tight", meal:null };
-  const best = mealLibrary.filter(m=>m.cal<=remaining.cal+80&&m.protein>=10).sort((a,b)=>Math.abs(a.cal-remaining.cal)-Math.abs(b.cal-remaining.cal))[0];
+  const isSnackGap = remaining.cal < 400;
+  const best = mealLibrary
+    .filter(m => m.cal <= remaining.cal + 80 && m.protein >= 10)
+    .filter(m => !isSnackGap || m.cal <= 400)
+    .sort((a,b) => Math.abs(a.cal - remaining.cal) - Math.abs(b.cal - remaining.cal))[0];
   return { type:"normal", meal:best||null };
 }
 
@@ -36,13 +39,18 @@ async function invokeCoach(payload) {
 export function buildSystemPrompt(state) {
   const { today, schedule, readiness, weekLog, mealLibrary, measurements, weekPlan } = state;
   const totals = sumLog(weekLog[today]||[]);
-  const targets = getTargets(schedule[today], readiness, false);
+  const targets = getTargets(schedule[today], readiness);
   const latest = measurements[measurements.length-1];
   const dayTargets = DAYS.map(d=>{
-    const tgt=getTargets(schedule[d],null,false);
+    const tgt=getTargets(schedule[d],null);
     return `${d}(${WORKOUT_TYPES[schedule[d]]?.label}): ${tgt.total}cal / P${tgt.protein}g / C${tgt.carbs}g / F${tgt.fat}g`;
   }).join("\n");
+  const now = new Date();
+  const currentTime = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:true});
+  const currentDate = now.toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
   return `You are a nutrition coach agent embedded in a fitness tracking app. You write data directly into the app via JSON blocks. Never say you "can't save" or "can't log" — you are the agent that does it.
+
+RIGHT NOW: ${currentDate}, ${currentTime}. The user is talking to you in real time — do not ask what day or time it is.
 
 TWO MODES — recognise which one the user is in:
 1. MEAL LOGGING: User says "I just had X", "I ate X", "just finished X" → estimate macros, break them down clearly in your message, then output LOG_JSON. The app will show a confirmation card before committing — tell the user to confirm.
@@ -55,9 +63,10 @@ ${dayTargets}
 Social nights (Tue lunch, Wed dinner, Fri dinner): 700cal reserved for eating out, plan remaining meals around that.
 
 TODAY: ${today} (${WORKOUT_TYPES[schedule[today]]?.label}). Oura: ${readiness??"not set"}. Eaten: ${totals.cal}/${targets.total}cal P${totals.protein}g.
-WEEK LOG: ${DAYS.map(d=>{const t=sumLog(weekLog[d]||[]);return t.cal>0?`${d}:${t.cal}cal P${t.protein}g`:null;}).filter(Boolean).join(", ")||"nothing logged yet"}
-WEEK PLAN:
+WEEK LOG (what was actually eaten): ${DAYS.map(d=>{const t=sumLog(weekLog[d]||[]);return t.cal>0?`${d}:${t.cal}cal P${t.protein}g`:null;}).filter(Boolean).join(", ")||"nothing logged yet"}
+WEEK PLAN (intended schedule — for reference only, NOT what was actually eaten):
 ${DAYS.map(d=>{const p=weekPlan?.[d]||{};const slots=["breakfast","lunch","dinner","snack"].map(s=>`${s[0].toUpperCase()}:${p[s]||"—"}`).join(" | ");return `${d}: ${slots}`;}).join("\n")}
+CRITICAL LOGGING RULE: When logging a meal, ALWAYS estimate macros from what the user actually described. NEVER use a WEEK PLAN meal name or its library macros as the logged entry — the plan is aspirational, not reality. Use a descriptive name based on what the user said (e.g. "Sushi dinner — 2 rolls + edamame"), not a plan template name.
 LIBRARY (name · cal · protein): ${mealLibrary.map(m=>`${m.name}·${m.cal}·P${m.protein}`).join(", ")}
 ${latest?`BODY: ${latest.weight}kg waist ${latest.waist}cm`:""}
 

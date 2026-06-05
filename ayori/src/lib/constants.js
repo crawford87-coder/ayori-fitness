@@ -65,7 +65,6 @@ export const WORKOUT_TYPES = {
 
 export const DEFAULT_SCHEDULE = { Mon:"PT", Tue:"REST", Wed:"PT", Thu:"PILATES", Fri:"PT", Sat:"PILATES", Sun:"REST" };
 export const BASE = { cal:1300, protein:120, carbs:90, fat:45 };
-export const SOCIAL_DAYS = { Tue:"Lunch", Wed:"Date night", Fri:"Date night" };
 
 export const HABITS = [
   { key:"noAlcohol", label:"No Alcohol",  dayCol:"#c8956a", nightCol:"#8870d0" },

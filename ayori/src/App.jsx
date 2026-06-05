@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
 import { supabase, dbLoad, dbSaveWeekLog, dbSaveHabits, dbSaveLibrary, dbSaveWeekPlan, dbSaveMeasurements, dbSaveReadiness, dbLoadMessages, dbSaveMessages, dbLoadSettings, dbSaveSettings } from "./lib/supabase";
 import { weekDatesInTz, weekKeyInTz, dayIndexInTz } from "./lib/dates";
-import { THEMES, DAYS, DEFAULT_LIBRARY, DEFAULT_SCHEDULE, BASE, SOCIAL_DAYS } from "./lib/constants";
+import { THEMES, DAYS, DEFAULT_LIBRARY, DEFAULT_SCHEDULE, BASE } from "./lib/constants";
 import { getTargets } from "./lib/helpers";
 import Auth from "./Auth";
 import Today from "./tabs/Today";
@@ -38,6 +38,7 @@ export default function App() {
   const [weekPlan,setWeekPlan]=useState(Object.fromEntries(DAYS.map(d=>[d,{breakfast:null,lunch:null,dinner:null,snack:null}])));
   const [coachMessages,setCoachMessages]=useState([{role:"assistant",content:"What are we working with this week? Tell me what's in your fridge, recipes to test, social plans."}]);
   const [groceryList,setGroceryList]=useState({});
+  const [coachOpen,setCoachOpen]=useState(false);
   const [loaded,setLoaded]=useState(false);
   const [user,setUser]=useState(null);
   const [authLoading,setAuthLoading]=useState(true);
@@ -112,16 +113,14 @@ export default function App() {
   const base={ cal:settings.base_calories, protein:settings.base_protein, carbs:settings.base_carbs, fat:settings.base_fat };
   const todayLog=weekLog[today]||[];
   const setTodayLog=fn=>setWeekLog(p=>({...p,[today]:typeof fn==="function"?fn(p[today]):fn}));
-  const isSocialNight=!!SOCIAL_DAYS[today]&&SOCIAL_DAYS[today].includes("night");
-  const targets=getTargets(schedule[today],readiness,isSocialNight,base);
-  const socialFlag=SOCIAL_DAYS[today]||null;
+  const targets=getTargets(schedule[today],readiness,base);
   const appState={today,schedule,readiness,weekLog,mealLibrary,measurements,weekPlan};
+
+  const navigate=(tab)=>{ if(tab==="coach") setCoachOpen(true); else setActiveTab(tab); };
 
   const tabs=[
     {key:"dashboard",label:"Today"},
-    {key:"coach",    label:"Coach"},
     {key:"log",      label:"Meals"},
-    {key:"habits",   label:"Habits"},
     {key:"body",     label:"Body"},
     {key:"progress", label:"Stats"},
   ];
@@ -153,6 +152,54 @@ export default function App() {
     ::-webkit-scrollbar{display:none;}
   `;
 
+  const coachBubble=(
+    <motion.button whileTap={{ scale:0.9 }} whileHover={{ scale:1.06 }}
+      onClick={()=>setCoachOpen(true)}
+      style={{
+        position:"fixed", bottom:isDesktop?32:84, right:20,
+        width:56, height:56, borderRadius:"50%",
+        background:`radial-gradient(circle at 35% 30%, ${t.accent}dd 0%, ${t.accent} 60%, ${t.accent}bb 100%)`,
+        border:"none", cursor:"pointer",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        boxShadow:`4px 6px 20px ${t.accent}55, -2px -2px 8px rgba(255,255,255,0.45), inset 0 1px 2px rgba(255,255,255,0.35)`,
+        zIndex:20, color:"#fff", fontSize:22,
+      }}>
+      <span style={{ lineHeight:1 }}>💬</span>
+    </motion.button>
+  );
+
+  const coachModalJsx=(
+    <AnimatePresence>
+      {coachOpen&&(
+        <>
+          <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} transition={{ duration:0.2 }}
+            onClick={()=>setCoachOpen(false)}
+            style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)", zIndex:40 }}/>
+          <motion.div
+            initial={{ y:"100%" }} animate={{ y:0 }} exit={{ y:"100%" }}
+            transition={{ type:"spring", damping:28, stiffness:280 }}
+            style={{
+              position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
+              width:"100%", maxWidth:isDesktop?540:480,
+              height:"92dvh", background:t.bg,
+              borderRadius:"24px 24px 0 0", zIndex:41,
+              display:"flex", flexDirection:"column", overflow:"hidden",
+              boxShadow:"0 -8px 48px rgba(0,0,0,0.18)",
+            }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px 16px", borderBottom:`1px solid ${t.border}`, flexShrink:0, backdropFilter:"blur(12px)", background:`${t.bg}ee` }}>
+              <div style={{ fontSize:13, letterSpacing:3, textTransform:"uppercase", color:t.accent, fontWeight:600 }}>Coach</div>
+              <motion.button whileTap={{ scale:0.93 }} onClick={()=>setCoachOpen(false)}
+                style={{ width:32, height:32, borderRadius:"50%", background:"transparent", border:`1px solid ${t.border}`, color:t.textDim, fontSize:20, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"inherit" }}>×</motion.button>
+            </div>
+            <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+              <Coach t={t} appState={appState} mealLibrary={mealLibrary} setMealLibrary={setMealLibrary} setWeekPlan={setWeekPlan} setWeekLog={setWeekLog} setActiveTab={(tab)=>{ setCoachOpen(false); setActiveTab(tab); }} messages={coachMessages} setMessages={setCoachMessages} groceryList={groceryList} setGroceryList={setGroceryList} todayLog={todayLog} setTodayLog={setTodayLog} targets={targets}/>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
   const headerJsx=(
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px 16px", borderBottom:`1px solid ${t.border}`, backdropFilter:"blur(12px)", background:`${t.bg}cc`, position:"sticky", top:0, zIndex:5 }}>
       <div style={{ fontSize:11, letterSpacing:4, textTransform:"uppercase", color:t.accent, fontWeight:600 }}>Ayori</div>
@@ -171,7 +218,7 @@ export default function App() {
           <motion.button key={tab.key} whileTap={{ scale:0.92 }} onClick={()=>setActiveTab(tab.key)} style={{
             flex:1, padding:"15px 0 13px", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit",
             color:active?t.accent:t.textDim, minHeight:44,
-            fontSize:9, letterSpacing:1.5, textTransform:"uppercase", fontWeight:active?700:400,
+            fontSize:11, letterSpacing:1.5, textTransform:"uppercase", fontWeight:active?700:400,
             borderTop:`2px solid ${active?t.accent:"transparent"}`,
             marginTop:-1, transition:"color 0.15s",
           }}>{tab.label}</motion.button>
@@ -188,7 +235,7 @@ export default function App() {
       {/* Left: always Today */}
       <div style={{ borderRight:`1px solid ${t.border}`, overflowY:"auto", height:"100vh", position:"sticky", top:0, zIndex:1 }}>
         {headerJsx}
-        <Today t={t} today={today} dayIdx={adjustedIndex} todayLog={todayLog} setTodayLog={setTodayLog} targets={targets} readiness={readiness} setReadiness={setReadiness} schedule={schedule} weekHabits={weekHabits} setActiveTab={setActiveTab} socialFlag={socialFlag} mealLibrary={mealLibrary}/>
+        <Today t={t} today={today} dayIdx={adjustedIndex} todayLog={todayLog} setTodayLog={setTodayLog} targets={targets} readiness={readiness} setReadiness={setReadiness} schedule={schedule} weekHabits={weekHabits} setWeekHabits={setWeekHabits} setActiveTab={navigate} mealLibrary={mealLibrary} weekLog={weekLog} setWeekLog={setWeekLog} base={base}/>
       </div>
 
       {/* Right: nav + active tab */}
@@ -196,12 +243,12 @@ export default function App() {
         <div style={{ flexShrink:0 }}>
           <div style={{ display:"flex", borderBottom:`1px solid ${t.border}`, background:`${t.bg}cc`, backdropFilter:"blur(12px)" }}>
             {tabs.filter(tab=>tab.key!=="dashboard").map(tab=>{
-              const active=activeTab===tab.key||(tab.key==="coach"&&activeTab==="dashboard");
+              const active=activeTab===tab.key||(tab.key==="log"&&activeTab==="dashboard");
               return (
                 <motion.button key={tab.key} whileTap={{ scale:0.93 }} onClick={()=>setActiveTab(tab.key)} style={{
                   padding:"18px 24px", border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit",
                   borderBottom:`2px solid ${active?t.accent:"transparent"}`, marginBottom:-1,
-                  color:active?t.accent:t.textDim, fontSize:9, letterSpacing:2, textTransform:"uppercase",
+                  color:active?t.accent:t.textDim, fontSize:11, letterSpacing:2, textTransform:"uppercase",
                   fontWeight:active?700:400, transition:"all 0.15s", minHeight:44,
                 }}>{tab.label}</motion.button>
               );
@@ -209,13 +256,13 @@ export default function App() {
           </div>
         </div>
         <div style={{ flex:1, overflowY:"auto" }}>
-          {(activeTab==="coach"||activeTab==="dashboard")&&<Coach t={t} appState={appState} mealLibrary={mealLibrary} setMealLibrary={setMealLibrary} setWeekPlan={setWeekPlan} setWeekLog={setWeekLog} setActiveTab={setActiveTab} messages={coachMessages} setMessages={setCoachMessages} groceryList={groceryList} setGroceryList={setGroceryList} todayLog={todayLog} setTodayLog={setTodayLog} targets={targets}/>}
-          {activeTab==="log"      &&<Meals t={t} weekLog={weekLog} setWeekLog={setWeekLog} today={today} schedule={schedule} readiness={readiness} mealLibrary={mealLibrary} base={base}/>}
+          {(activeTab==="log"||activeTab==="dashboard")&&<Meals t={t} weekLog={weekLog} setWeekLog={setWeekLog} today={today} schedule={schedule} readiness={readiness} mealLibrary={mealLibrary} base={base} weekPlan={weekPlan}/>}
           {activeTab==="progress" &&<Stats t={t} weekLog={weekLog} weekHabits={weekHabits} measurements={measurements} schedule={schedule} today={today} base={base}/>}
-          {activeTab==="habits"   &&<Habits t={t} weekHabits={weekHabits} setWeekHabits={setWeekHabits} today={today}/>}
           {activeTab==="body"     &&<Body t={t} measurements={measurements} setMeasurements={setMeasurements} units={settings.units}/>}
         </div>
       </div>
+      {coachBubble}
+      {coachModalJsx}
     </div>
   );
 
@@ -225,16 +272,16 @@ export default function App() {
       <motion.div style={{ y:bgY, position:"fixed", inset:"-30% 0 0 0", background:t.bgGradient, zIndex:0, pointerEvents:"none" }}/>
       <div style={{ position:"relative", zIndex:1 }}>
         {headerJsx}
-        {activeTab==="dashboard"&&<Today t={t} today={today} dayIdx={adjustedIndex} todayLog={todayLog} setTodayLog={setTodayLog} targets={targets} readiness={readiness} setReadiness={setReadiness} schedule={schedule} weekHabits={weekHabits} setActiveTab={setActiveTab} socialFlag={socialFlag} mealLibrary={mealLibrary}/>}
-        {activeTab==="coach"    &&<Coach t={t} appState={appState} mealLibrary={mealLibrary} setMealLibrary={setMealLibrary} setWeekPlan={setWeekPlan} setWeekLog={setWeekLog} setActiveTab={setActiveTab} messages={coachMessages} setMessages={setCoachMessages} groceryList={groceryList} setGroceryList={setGroceryList} todayLog={todayLog} setTodayLog={setTodayLog} targets={targets}/>}
-        {activeTab==="log"      &&<Meals t={t} weekLog={weekLog} setWeekLog={setWeekLog} today={today} schedule={schedule} readiness={readiness} mealLibrary={mealLibrary} base={base}/>}
+        {activeTab==="dashboard"&&<Today t={t} today={today} dayIdx={adjustedIndex} todayLog={todayLog} setTodayLog={setTodayLog} targets={targets} readiness={readiness} setReadiness={setReadiness} schedule={schedule} weekHabits={weekHabits} setWeekHabits={setWeekHabits} setActiveTab={navigate} mealLibrary={mealLibrary} weekLog={weekLog} setWeekLog={setWeekLog} base={base}/>}
+        {activeTab==="log"      &&<Meals t={t} weekLog={weekLog} setWeekLog={setWeekLog} today={today} schedule={schedule} readiness={readiness} mealLibrary={mealLibrary} base={base} weekPlan={weekPlan}/>}
         {activeTab==="progress" &&<Stats t={t} weekLog={weekLog} weekHabits={weekHabits} measurements={measurements} schedule={schedule} today={today} base={base}/>}
-        {activeTab==="habits"   &&<Habits t={t} weekHabits={weekHabits} setWeekHabits={setWeekHabits} today={today}/>}
         {activeTab==="body"     &&<Body t={t} measurements={measurements} setMeasurements={setMeasurements} units={settings.units}/>}
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:10 }}>
           {bottomNavJsx}
         </div>
       </div>
+      {coachBubble}
+      {coachModalJsx}
     </div>
   );
 }

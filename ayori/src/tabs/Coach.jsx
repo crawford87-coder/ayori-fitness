@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import { DAYS, WORKOUT_TYPES } from "../lib/constants";
 import { callClaude, buildSystemPrompt, parseMeals, parseGrocery, parseWeek, parseLog, stripJson, estimateMacros, sumLog } from "../lib/helpers";
 import { Over, Surface, SolidBtn, GhostBtn } from "../components/ui";
@@ -139,7 +140,7 @@ export default function CoachScreen({ t, appState, mealLibrary, setMealLibrary, 
     const newM=pendingMeals.filter(m=>!ex.has(m.name.toLowerCase()));
     setMealLibrary(p=>[...p,...newM]);
     if(pendingWeek) setWeekPlan(pendingWeek);
-    setMessages(p=>[...p,{role:"assistant",content:`Plan confirmed. ${newM.length} meals added to your library. Head to Week to see your schedule.`}]);
+    setMessages(p=>[...p,{role:"assistant",content:`Plan confirmed. ${newM.length} meals added to your library. Head to Meals to see your schedule.`}]);
     setPendingMeals(null);setPendingWeek(null);
   };
 
@@ -157,14 +158,14 @@ export default function CoachScreen({ t, appState, mealLibrary, setMealLibrary, 
   const hasGrocery=Object.keys(groceryList).length>0;
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 64px)" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
       <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${t.border}`, flexShrink:0 }}>
         {[{k:"chat",l:"Plan"},{k:"list",l:`List${hasGrocery?" ·":""}`},{k:"out",l:"Eating Out"}].map(tab=>(
           <button key={tab.k} onClick={()=>setView(tab.k)} style={{
             flex:1, padding:"16px 0", border:"none", background:"transparent",
             borderBottom:`2px solid ${view===tab.k?t.accent:"transparent"}`,
             color:view===tab.k?t.text:t.textDim,
-            fontSize:10, letterSpacing:3, textTransform:"uppercase",
+            fontSize:12, letterSpacing:3, textTransform:"uppercase",
             cursor:"pointer", fontFamily:"inherit", fontWeight:view===tab.k?600:400,
             marginBottom:-1, transition:"all 0.2s",
           }}>{tab.l}</button>
@@ -177,12 +178,25 @@ export default function CoachScreen({ t, appState, mealLibrary, setMealLibrary, 
             {messages.map((m,i)=>(
               <div key={i} style={{ display:"flex", justifyContent:m.role==="user"?"flex-end":"flex-start" }}>
                 <div style={{
-                  maxWidth:"80%", padding:"12px 16px", fontSize:13, lineHeight:1.7, whiteSpace:"pre-wrap",
+                  maxWidth:"80%", padding:"12px 16px", fontSize:15, lineHeight:1.7,
                   fontWeight:300,
                   borderRadius:m.role==="user"?"20px 20px 4px 20px":"20px 20px 20px 4px",
                   background:m.role==="user"?t.accent:t.elevated,
                   color:m.role==="user"?t.bg:t.text,
-                }}>{m.content}</div>
+                }}>
+                  {m.role==="user" ? m.content : (
+                    <ReactMarkdown components={{
+                      p:({children})=><p style={{margin:"0 0 8px",lineHeight:1.7}}>{children}</p>,
+                      ul:({children})=><ul style={{margin:"0 0 8px",paddingLeft:18}}>{children}</ul>,
+                      ol:({children})=><ol style={{margin:"0 0 8px",paddingLeft:18}}>{children}</ol>,
+                      li:({children})=><li style={{marginBottom:4}}>{children}</li>,
+                      strong:({children})=><strong style={{fontWeight:600}}>{children}</strong>,
+                      h1:({children})=><div style={{fontSize:15,fontWeight:600,margin:"0 0 8px"}}>{children}</div>,
+                      h2:({children})=><div style={{fontSize:14,fontWeight:600,margin:"0 0 6px"}}>{children}</div>,
+                      h3:({children})=><div style={{fontSize:13,fontWeight:600,margin:"0 0 4px"}}>{children}</div>,
+                    }}>{m.content}</ReactMarkdown>
+                  )}
+                </div>
               </div>
             ))}
             {loading&&(
@@ -198,9 +212,9 @@ export default function CoachScreen({ t, appState, mealLibrary, setMealLibrary, 
                     <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:"8px 0", borderBottom:`1px solid ${t.border}` }}>
                       <div style={{ display:"flex", gap:8, alignItems:"baseline" }}>
                         <Over t={t} color={t.textDim} style={{ width:28 }}>{e.day}</Over>
-                        <span style={{ fontSize:13, fontWeight:300, color:t.text }}>{e.name}</span>
+                        <span style={{ fontSize:15, fontWeight:300, color:t.text }}>{e.name}</span>
                       </div>
-                      <span style={{ fontSize:11, color:t.textMid, flexShrink:0 }}>{e.cal}cal · P{e.protein}g</span>
+                      <span style={{ fontSize:13, color:t.textMid, flexShrink:0 }}>{e.cal}cal · P{e.protein}g</span>
                     </div>
                   ))}
                 </div>
@@ -286,7 +300,7 @@ export default function CoachScreen({ t, appState, mealLibrary, setMealLibrary, 
               onChange={e=>{setInput(e.target.value);e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,100)+"px";}}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
               placeholder="What are we cooking this week..." rows={1}
-              style={{ flex:1, padding:"10px 0", border:"none", borderBottom:`1px solid ${t.border}`, background:"transparent", color:t.text, fontSize:13, fontFamily:"inherit", outline:"none", resize:"none", lineHeight:1.5, overflow:"hidden", fontWeight:300 }}/>
+              style={{ flex:1, padding:"10px 0", border:"none", borderBottom:`1px solid ${t.border}`, background:"transparent", color:t.text, fontSize:15, fontFamily:"inherit", outline:"none", resize:"none", lineHeight:1.5, overflow:"hidden", fontWeight:300 }}/>
             <button onClick={send} disabled={loading||!input.trim()} style={{
               width:36, height:36, borderRadius:"50%", border:`1px solid ${input.trim()?t.accent:t.border}`,
               background:"transparent", color:input.trim()?t.accent:t.textDim,

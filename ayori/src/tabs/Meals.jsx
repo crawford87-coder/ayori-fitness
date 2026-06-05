@@ -1,29 +1,27 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DAYS } from "../lib/constants";
-import { getTargets, sumLog } from "../lib/helpers";
+import { sumLog } from "../lib/helpers";
 import { Over, TxtInput, SolidBtn, GhostBtn } from "../components/ui";
 
 const SLOTS = ["Breakfast","Lunch","Dinner","Snack","Other"];
 
-function UndoToast({ t, item, onUndo, onDismiss }) {
+function UndoToast({ t, item, onUndo }) {
   return (
     <motion.div initial={{ y:60, opacity:0 }} animate={{ y:0, opacity:1 }} exit={{ y:60, opacity:0 }}
       style={{ position:"fixed", bottom:72, left:"50%", transform:"translateX(-50%)", width:"calc(100% - 48px)", maxWidth:432, background:t.elevated, border:`1px solid ${t.border}`, borderRadius:16, padding:"14px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", zIndex:50, boxShadow:t.shadow }}>
-      <span style={{ fontSize:13, fontWeight:300, color:t.text }}>{item.name} deleted</span>
-      <button onClick={onUndo} style={{ background:"transparent", border:"none", color:t.accent, fontSize:12, letterSpacing:2, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit" }}>Undo</button>
+      <span style={{ fontSize:15, fontWeight:300, color:t.text }}>{item.name} deleted</span>
+      <button onClick={onUndo} style={{ background:"transparent", border:"none", color:t.accent, fontSize:13, letterSpacing:2, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit" }}>Undo</button>
     </motion.div>
   );
 }
 
-function MealRow({ t, meal, onDelete, onEdit }) {
+function LoggedMealRow({ t, meal, onEdit, onDelete }) {
   const [dragging, setDragging] = useState(false);
-  const x = useRef(0);
-
   return (
     <div style={{ position:"relative", overflow:"hidden" }}>
       <div style={{ position:"absolute", right:0, top:0, bottom:0, width:80, background:t.over, display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <span style={{ fontSize:10, color:"#fff", letterSpacing:2, textTransform:"uppercase" }}>Delete</span>
+        <span style={{ fontSize:12, color:"#fff", letterSpacing:2, textTransform:"uppercase" }}>Delete</span>
       </div>
       <motion.div drag="x" dragConstraints={{ left:-80, right:0 }} dragElastic={0.1}
         onDragStart={()=>setDragging(true)}
@@ -31,19 +29,36 @@ function MealRow({ t, meal, onDelete, onEdit }) {
         onClick={()=>{ if(!dragging) onEdit(); }}
         style={{ background:t.bg, cursor:"pointer", position:"relative", zIndex:1, display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:`1px solid ${t.border}` }}>
         <div>
-          <div style={{ fontSize:13, fontWeight:300, color:t.text }}>{meal.social&&<span style={{ color:t.accentC }}>↗ </span>}{meal.name}</div>
-          <div style={{ fontSize:10, color:t.textDim, marginTop:3, letterSpacing:0.5 }}>P{meal.protein} · C{meal.carbs} · F{meal.fat}</div>
+          <div style={{ fontSize:15, fontWeight:400, color:t.text }}>{meal.social&&<span style={{ color:t.accentC }}>↗ </span>}{meal.name}</div>
+          <div style={{ fontSize:12, color:t.textDim, marginTop:3, letterSpacing:0.5 }}>P{meal.protein} · C{meal.carbs} · F{meal.fat}</div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ fontSize:14, fontWeight:200, color:meal.cal>700?t.over:t.textMid }}>{meal.cal}</div>
-          <span style={{ fontSize:10, color:t.textDim }}>›</span>
+          <div style={{ fontSize:16, fontWeight:200, color:meal.cal>700?t.over:t.textMid }}>{meal.cal}</div>
+          <span style={{ fontSize:12, color:t.textDim }}>›</span>
         </div>
       </motion.div>
     </div>
   );
 }
 
-export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readiness, mealLibrary, base }) {
+function ProjectedMealRow({ t, name, meal, onLog }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:`1px solid ${t.border}` }}>
+      <div>
+        <div style={{ fontSize:15, fontWeight:300, color:t.accent, fontStyle:"italic" }}>{name}</div>
+        <div style={{ fontSize:12, color:t.textDim, marginTop:3, letterSpacing:0.5 }}>
+          {meal ? `P${meal.protein} · C${meal.carbs} · F${meal.fat} · projected` : "projected"}
+        </div>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        {meal && <div style={{ fontSize:16, fontWeight:200, color:t.accent, fontStyle:"italic", opacity:0.75 }}>{meal.cal}</div>}
+        <button onClick={onLog} style={{ padding:"5px 14px", borderRadius:20, border:`1px solid ${t.accent}`, background:"transparent", color:t.accent, fontSize:11, letterSpacing:2, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit" }}>Log</button>
+      </div>
+    </div>
+  );
+}
+
+export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readiness, mealLibrary, base, weekPlan }) {
   const [selectedDay,setSelectedDay]=useState(today);
   const [search,setSearch]=useState("");
   const [custom,setCustom]=useState({name:"",cal:"",protein:"",carbs:"",fat:"",type:"Other"});
@@ -56,8 +71,41 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
 
   const dayLog=weekLog[selectedDay]||[];
   const setDayLog=fn=>setWeekLog(p=>({...p,[selectedDay]:typeof fn==="function"?fn(p[selectedDay]||[]):fn}));
-  const targets=getTargets(schedule[selectedDay],selectedDay===today?readiness:null,false,base);
   const totals=sumLog(dayLog);
+
+  // Planned meals from coach
+  const dayPlan=weekPlan?.[selectedDay]||{};
+  const plannedSlots=["breakfast","lunch","dinner","snack"]
+    .map(s=>({ slot:s, name:dayPlan[s]||null }))
+    .filter(s=>s.name)
+    .map(s=>({ ...s, meal: mealLibrary.find(m=>m.name===s.name)||null }));
+  const plannedTotals=plannedSlots.reduce((acc,s)=>{
+    if(!s.meal) return acc;
+    return { cal:acc.cal+s.meal.cal, protein:acc.protein+s.meal.protein, carbs:acc.carbs+s.meal.carbs, fat:acc.fat+s.meal.fat };
+  },{ cal:0, protein:0, carbs:0, fat:0 });
+  const hasPlanned=plannedSlots.length>0;
+
+  // Fuzzy match: strip connectives/stopwords, then check keyword overlap
+  // "Kachava + Almond Milk" and "Kachava with Almond Milk" both → ["kachava","almond","milk"]
+  const STOP=new Set(['with','and','the','a','an','in','of','for','on','at','by','or','to','plus']);
+  const normStr=s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const keyWords=s=>normStr(s).split(' ').filter(w=>w.length>=3&&!STOP.has(w));
+  const namesMatch=(a,b)=>{
+    if(normStr(a)===normStr(b)) return true;
+    const wa=keyWords(a),wb=keyWords(b);
+    if(!wa.length||!wb.length) return false;
+    const [shorter,longerSet]=wa.length<=wb.length?[wa,new Set(wb)]:[wb,new Set(wa)];
+    const hits=shorter.filter(w=>longerSet.has(w)).length;
+    return hits/shorter.length>=0.6;
+  };
+
+  // For each planned slot, find the best logged match anywhere in dayLog (any slot type)
+  const claimedIds=new Set();
+  const slotMatches={};
+  plannedSlots.forEach(s=>{
+    const match=dayLog.find(m=>!claimedIds.has(m.id)&&namesMatch(m.name,s.name));
+    if(match){ claimedIds.add(match.id); slotMatches[s.slot]=match; }
+  });
 
   const deleteMeal=(meal)=>{
     setDayLog(p=>p.filter(m=>m.id!==meal.id));
@@ -72,72 +120,118 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
     clearTimeout(undoTimerRef.current);
   };
 
-  const openEdit=(meal)=>{
-    setEditMeal(meal.id);
-    setEditForm({...meal,type:meal.type||"Other"});
-    setAddOpen(false);
-  };
+  const openEdit=(meal)=>{ setEditMeal(meal.id); setEditForm({...meal,type:meal.type||"Other"}); setAddOpen(false); };
 
   const saveEdit=()=>{
     setDayLog(p=>p.map(m=>m.id===editMeal?{...editForm,cal:+editForm.cal,protein:+editForm.protein||0,carbs:+editForm.carbs||0,fat:+editForm.fat||0}:m));
     setEditMeal(null);
   };
 
-  const grouped=SLOTS.reduce((acc,slot)=>{
-    const meals=dayLog.filter(m=>(m.type||"Other")===slot);
-    if(meals.length) acc[slot]=meals;
-    return acc;
-  },{});
+  const logPlanned=(slotKey, meal, name)=>{
+    const type=slotKey.charAt(0).toUpperCase()+slotKey.slice(1);
+    const entry=meal ? {...meal, id:crypto.randomUUID(), type} : {id:crypto.randomUUID(), name, cal:0, protein:0, carbs:0, fat:0, type};
+    setDayLog(p=>[...p,entry]);
+  };
 
   return (
     <div style={{ padding:"0 0 80px", position:"relative" }}>
+
       {/* Day strip */}
       <div style={{ display:"flex", borderBottom:`1px solid ${t.border}`, overflowX:"auto", scrollbarWidth:"none" }}>
         {DAYS.map(d=>{
-          const active=selectedDay===d, isToday=d===today, hasLog=(weekLog[d]||[]).length>0;
+          const active=selectedDay===d, isToday=d===today;
+          const hasLog=(weekLog[d]||[]).length>0;
+          const hasPlan=Object.values(weekPlan?.[d]||{}).some(Boolean);
           return (
             <button key={d} onClick={()=>{setSelectedDay(d);setAddOpen(false);setEditMeal(null);}} style={{
               flexShrink:0, flex:1, minWidth:52, padding:"14px 0 12px",
               border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit",
               borderBottom:`2px solid ${active?t.accent:"transparent"}`, marginBottom:-1, textAlign:"center",
             }}>
-              <div style={{ fontSize:10, letterSpacing:1, textTransform:"uppercase", color:active?t.accent:isToday?t.textMid:t.textDim, fontWeight:active?600:400 }}>{d}</div>
-              {hasLog&&<div style={{ width:4, height:4, borderRadius:"50%", background:active?t.accent:t.textDim, margin:"5px auto 0" }}/>}
+              <div style={{ fontSize:12, letterSpacing:1, textTransform:"uppercase", color:active?t.accent:isToday?t.textMid:t.textDim, fontWeight:active?600:400 }}>{d}</div>
+              <div style={{ display:"flex", justifyContent:"center", gap:3, marginTop:5, height:6, alignItems:"center" }}>
+                {hasLog&&<div style={{ width:5, height:5, borderRadius:"50%", background:active?t.accent:t.textMid }}/>}
+                {hasPlan&&!hasLog&&<div style={{ width:5, height:5, borderRadius:"50%", border:`1.5px solid ${active?t.accent:t.textDim}` }}/>}
+              </div>
             </button>
           );
         })}
       </div>
 
-      {/* Macro totals */}
       <div style={{ padding:"0 24px" }}>
+
+        {/* Macro totals */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", borderBottom:`1px solid ${t.border}` }}>
-          {[{l:"kcal",v:totals.cal,tg:targets.total,c:t.ring},{l:"pro",v:totals.protein,tg:targets.protein,c:t.protein},{l:"carb",v:totals.carbs,tg:targets.carbs,c:t.carbs},{l:"fat",v:totals.fat,tg:targets.fat,c:t.fat}].map((m,i)=>(
-            <div key={m.l} style={{ padding:"20px 0", textAlign:"center", borderRight:i<3?`1px solid ${t.border}`:"none" }}>
-              <div style={{ fontSize:22, fontWeight:200, color:m.v>m.tg?t.over:m.c, letterSpacing:-0.5, fontFamily:"'Georgia','Times New Roman',serif" }}>{m.v}</div>
+          {[
+            {l:"kcal", v:totals.cal,     p:plannedTotals.cal,     c:t.ring},
+            {l:"pro",  v:totals.protein, p:plannedTotals.protein, c:t.protein},
+            {l:"carb", v:totals.carbs,   p:plannedTotals.carbs,   c:t.carbs},
+            {l:"fat",  v:totals.fat,     p:plannedTotals.fat,     c:t.fat},
+          ].map((m,i)=>(
+            <div key={m.l} style={{ padding:"16px 0", textAlign:"center", borderRight:i<3?`1px solid ${t.border}`:"none" }}>
+              <div style={{ fontSize:22, fontWeight:200, letterSpacing:-0.5, fontFamily:"'Georgia','Times New Roman',serif", color:m.v>0?m.c:t.textDim }}>{m.v}</div>
+              {hasPlanned&&m.p>0&&<div style={{ fontSize:11, color:t.textDim, marginTop:1, fontStyle:"italic" }}>/ {m.p}</div>}
               <Over t={t} style={{ marginTop:4 }}>{m.l}</Over>
             </div>
           ))}
         </div>
 
-        {/* Grouped meal list */}
-        {dayLog.length===0 ? (
-          <div style={{ padding:"40px 0", color:t.textDim, fontSize:13, fontWeight:300, textAlign:"center" }}>
-            Nothing logged yet — tap + to add a meal.
-          </div>
-        ) : (
-          <div style={{ marginTop:8, marginBottom:8 }}>
-            {Object.entries(grouped).map(([slot,meals])=>(
-              <div key={slot} style={{ marginBottom:8 }}>
-                <Over t={t} color={t.textDim} style={{ padding:"16px 0 8px", letterSpacing:2 }}>{slot}</Over>
-                {meals.map(m=>(
-                  <MealRow key={m.id} t={t} meal={m}
-                    onDelete={()=>deleteMeal(m)}
-                    onEdit={()=>openEdit(m)}/>
+        {/* Slot-based meal list */}
+        <div style={{ marginTop:8 }}>
+          {["Breakfast","Lunch","Dinner","Snack"].map(slot=>{
+            const slotKey=slot.toLowerCase();
+            const planned=plannedSlots.find(s=>s.slot===slotKey)||null;
+            // Meals explicitly logged to this slot + any fuzzy-matched meal from plan
+            const planMatch=slotMatches[slotKey]||null;
+            const explicitLogged=dayLog.filter(m=>(m.type||"Other")===slot&&!claimedIds.has(m.id));
+            const allLogged=planMatch?[planMatch,...explicitLogged]:explicitLogged;
+
+            if(!planned&&!allLogged.length) return null;
+
+            const exactMatch=planMatch&&namesMatch(planMatch.name,planned?.name||'')&&normStr(planMatch.name)===normStr(planned?.name||'');
+
+            return (
+              <div key={slot}>
+                <Over t={t} color={t.textDim} style={{ padding:"16px 0 6px", letterSpacing:2 }}>{slot}</Over>
+                {allLogged.length>0 ? (
+                  <>
+                    {allLogged.map(m=>(
+                      <LoggedMealRow key={m.id} t={t} meal={m} onEdit={()=>openEdit(m)} onDelete={()=>deleteMeal(m)}/>
+                    ))}
+                    {planned&&!exactMatch&&(
+                      <div style={{ padding:"5px 0 10px", fontSize:12, color:t.textDim, fontStyle:"italic" }}>
+                        ↳ planned: {planned.name}{planned.meal?` · ${planned.meal.cal}cal`:""}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <ProjectedMealRow t={t} name={planned.name} meal={planned.meal}
+                    onLog={()=>logPlanned(slotKey, planned.meal, planned.name)}/>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Other / unslotted — exclude anything already claimed by a planned slot */}
+          {(()=>{
+            const other=dayLog.filter(m=>!["Breakfast","Lunch","Dinner","Snack"].includes(m.type)&&!claimedIds.has(m.id));
+            if(!other.length) return null;
+            return (
+              <div>
+                <Over t={t} color={t.textDim} style={{ padding:"16px 0 6px", letterSpacing:2 }}>Other</Over>
+                {other.map(m=>(
+                  <LoggedMealRow key={m.id} t={t} meal={m} onEdit={()=>openEdit(m)} onDelete={()=>deleteMeal(m)}/>
                 ))}
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })()}
+
+          {dayLog.length===0&&!hasPlanned&&(
+            <div style={{ padding:"40px 0", color:t.textDim, fontSize:15, fontWeight:300, textAlign:"center" }}>
+              Nothing logged yet — tap + to add a meal.
+            </div>
+          )}
+        </div>
 
         {/* Edit sheet */}
         <AnimatePresence>
@@ -151,12 +245,12 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
                   <TxtInput key={k} t={t} placeholder={ph} type="number" value={editForm[k]||""} onChange={e=>setEditForm(p=>({...p,[k]:e.target.value}))}/>
                 ))}
               </div>
-              <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
                 {SLOTS.map(s=>(
                   <button key={s} onClick={()=>setEditForm(p=>({...p,type:s}))} style={{
                     padding:"6px 10px", borderRadius:20, border:`1px solid ${editForm.type===s?t.accent:t.border}`,
                     background:editForm.type===s?`${t.accent}18`:t.elevated, color:editForm.type===s?t.accent:t.textDim,
-                    fontSize:9, letterSpacing:1, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit",
+                    fontSize:11, letterSpacing:1, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit",
                   }}>{s}</button>
                 ))}
               </div>
@@ -179,12 +273,11 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
                   <button key={m} onClick={()=>setMode(m)} style={{
                     flex:1, padding:"12px 0", border:"none", background:"transparent",
                     borderBottom:`2px solid ${mode===m?t.accent:"transparent"}`,
-                    color:mode===m?t.text:t.textDim, fontSize:9, letterSpacing:3, textTransform:"uppercase",
+                    color:mode===m?t.text:t.textDim, fontSize:11, letterSpacing:3, textTransform:"uppercase",
                     cursor:"pointer", fontFamily:"inherit", fontWeight:mode===m?600:400, marginBottom:-1,
                   }}>{m==="library"?"Library":"Custom"}</button>
                 ))}
               </div>
-
               {mode==="library"&&(
                 <>
                   <TxtInput t={t} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search meals..." style={{ marginBottom:16 }}/>
@@ -192,11 +285,11 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
                     {mealLibrary.filter(m=>m.name.toLowerCase().includes(search.toLowerCase())).map((meal,i)=>(
                       <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:`1px solid ${t.border}` }}>
                         <div>
-                          <div style={{ fontSize:13, fontWeight:300, color:t.text }}>{meal.name}</div>
-                          <div style={{ fontSize:10, color:t.textDim, marginTop:3 }}>P{meal.protein} · C{meal.carbs} · F{meal.fat}</div>
+                          <div style={{ fontSize:15, fontWeight:300, color:t.text }}>{meal.name}</div>
+                          <div style={{ fontSize:12, color:t.textDim, marginTop:3 }}>P{meal.protein} · C{meal.carbs} · F{meal.fat}</div>
                         </div>
                         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-                          <div style={{ fontSize:13, fontWeight:200, color:t.textMid }}>{meal.cal}</div>
+                          <div style={{ fontSize:15, fontWeight:200, color:t.textMid }}>{meal.cal}</div>
                           <button onClick={()=>setDayLog(p=>[...p,{...meal,id:crypto.randomUUID(),type:"Other"}])} style={{ width:26, height:26, borderRadius:"50%", background:"transparent", border:`1px solid ${t.accent}`, color:t.accent, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
                         </div>
                       </div>
@@ -204,7 +297,6 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
                   </div>
                 </>
               )}
-
               {mode==="custom"&&(
                 <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
                   <TxtInput t={t} placeholder="Meal name" value={custom.name} onChange={e=>setCustom(p=>({...p,name:e.target.value}))} style={{ marginBottom:8 }}/>
@@ -218,7 +310,7 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
                       <button key={s} onClick={()=>setCustom(p=>({...p,type:s}))} style={{
                         padding:"6px 10px", borderRadius:20, border:`1px solid ${custom.type===s?t.accent:t.border}`,
                         background:custom.type===s?`${t.accent}18`:t.elevated, color:custom.type===s?t.accent:t.textDim,
-                        fontSize:9, letterSpacing:1, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit",
+                        fontSize:11, letterSpacing:1, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit",
                       }}>{s}</button>
                     ))}
                   </div>
@@ -235,21 +327,20 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
         </AnimatePresence>
       </div>
 
-      {/* Floating + Add Meal button */}
+      {/* Floating add button */}
       <motion.button whileTap={{ scale:0.93 }} onClick={()=>{setAddOpen(p=>!p);setEditMeal(null);}} style={{
         position:"sticky", bottom:72, left:"50%", transform:"translateX(-50%)", display:"block",
         margin:"20px auto 0", padding:"12px 32px",
         background:addOpen?t.elevated:t.accent, color:addOpen?t.textDim:"#fff",
         border:`1px solid ${addOpen?t.border:t.accent}`, borderRadius:32,
-        fontSize:11, letterSpacing:3, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit",
+        fontSize:13, letterSpacing:3, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit",
         boxShadow:t.shadow, transition:"all 0.2s", width:"fit-content",
       }}>
         {addOpen?"Close":"+ Add Meal"}
       </motion.button>
 
-      {/* Undo toast */}
       <AnimatePresence>
-        {undoItem&&<UndoToast t={t} item={undoItem} onUndo={undoDelete} onDismiss={()=>setUndoItem(null)}/>}
+        {undoItem&&<UndoToast t={t} item={undoItem} onUndo={undoDelete}/>}
       </AnimatePresence>
     </div>
   );
