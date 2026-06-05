@@ -1,0 +1,9 @@
+.DS_Store
+.vscode/
+.claude/
+.playwright-mcp/
+memory/
+supabase/.temp/
+ayori/Ayori/
+ayori_v3.jsx
+fitness_coach_v3.jsx
