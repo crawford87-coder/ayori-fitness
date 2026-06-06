@@ -41,7 +41,7 @@ function LoggedMealRow({ t, meal, onEdit, onDelete }) {
   );
 }
 
-function ProjectedMealRow({ t, name, meal, onLog }) {
+function ProjectedMealRow({ t, name, meal, onLog, onSkip }) {
   return (
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:`1px solid ${t.border}` }}>
       <div>
@@ -50,10 +50,23 @@ function ProjectedMealRow({ t, name, meal, onLog }) {
           {meal ? `P${meal.protein} · C${meal.carbs} · F${meal.fat} · projected` : "projected"}
         </div>
       </div>
-      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         {meal && <div style={{ fontSize:16, fontWeight:200, color:t.accent, fontStyle:"italic", opacity:0.75 }}>{meal.cal}</div>}
+        <button onClick={onSkip} style={{ padding:"5px 14px", borderRadius:20, border:`1px solid ${t.border}`, background:"transparent", color:t.textDim, fontSize:11, letterSpacing:2, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit" }}>Skip</button>
         <button onClick={onLog} style={{ padding:"5px 14px", borderRadius:20, border:`1px solid ${t.accent}`, background:"transparent", color:t.accent, fontSize:11, letterSpacing:2, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit" }}>Log</button>
       </div>
+    </div>
+  );
+}
+
+function SkippedMealRow({ t, name, onUndo }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:`1px solid ${t.border}`, opacity:0.45 }}>
+      <div>
+        <div style={{ fontSize:15, fontWeight:300, color:t.textDim, textDecoration:"line-through", fontStyle:"italic" }}>{name}</div>
+        <div style={{ fontSize:12, color:t.textDim, marginTop:3, letterSpacing:0.5 }}>skipped</div>
+      </div>
+      <button onClick={onUndo} style={{ padding:"5px 14px", borderRadius:20, border:`1px solid ${t.border}`, background:"transparent", color:t.textDim, fontSize:11, letterSpacing:2, textTransform:"uppercase", cursor:"pointer", fontFamily:"inherit" }}>Undo</button>
     </div>
   );
 }
@@ -133,6 +146,15 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
     setDayLog(p=>[...p,entry]);
   };
 
+  const skipPlanned=(slotKey, name)=>{
+    const type=slotKey.charAt(0).toUpperCase()+slotKey.slice(1);
+    setDayLog(p=>[...p,{id:crypto.randomUUID(),name,cal:0,protein:0,carbs:0,fat:0,type,skipped:true}]);
+  };
+
+  const unskipPlanned=(mealId)=>{
+    setDayLog(p=>p.filter(m=>m.id!==mealId));
+  };
+
   return (
     <div style={{ padding:"0 0 80px", position:"relative" }}>
 
@@ -196,9 +218,11 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
                 {allLogged.length>0 ? (
                   <>
                     {allLogged.map(m=>(
-                      <LoggedMealRow key={m.id} t={t} meal={m} onEdit={()=>openEdit(m)} onDelete={()=>deleteMeal(m)}/>
+                      m.skipped
+                        ? <SkippedMealRow key={m.id} t={t} name={m.name} onUndo={()=>unskipPlanned(m.id)}/>
+                        : <LoggedMealRow key={m.id} t={t} meal={m} onEdit={()=>openEdit(m)} onDelete={()=>deleteMeal(m)}/>
                     ))}
-                    {planned&&!exactMatch&&(
+                    {planned&&!exactMatch&&allLogged.some(m=>!m.skipped)&&(
                       <div style={{ padding:"5px 0 10px", fontSize:12, color:t.textDim, fontStyle:"italic" }}>
                         ↳ planned: {planned.name}{planned.meal?` · ${planned.meal.cal}cal`:""}
                       </div>
@@ -206,7 +230,8 @@ export default function MealLog({ t, weekLog, setWeekLog, today, schedule, readi
                   </>
                 ) : (
                   <ProjectedMealRow t={t} name={planned.name} meal={planned.meal}
-                    onLog={()=>logPlanned(slotKey, planned.meal, planned.name)}/>
+                    onLog={()=>logPlanned(slotKey, planned.meal, planned.name)}
+                    onSkip={()=>skipPlanned(slotKey, planned.name)}/>
                 )}
               </div>
             );
